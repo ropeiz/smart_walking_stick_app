@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
-import 'login_screen.dart';
+import 'screens/start_screen.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Safety App',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
-      home: LoginScreen(),
+      home: const StartScreen(),
     );
   }
 }
