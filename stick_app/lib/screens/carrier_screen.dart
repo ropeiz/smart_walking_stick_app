@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:stick_app/screens/start_screen.dart'; // Importación de StartScreen
 import 'dart:async';
 import 'package:stick_app/services/session_manager.dart'; // Importa el CognitoManager
+import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+
 
 class CarrierScreen extends StatefulWidget {
   const CarrierScreen({super.key});
@@ -15,8 +17,12 @@ class _CarrierScreenState extends State<CarrierScreen> {
   bool showOkButton = false;
   Color sosButtonColor = Colors.red;
   Timer? flashTimer;
+  Timer? sosTimer;
   Timer? longPressTimer;
   double progress = 0.0;
+
+  // Número de teléfono al que se llamará
+  final String emergencyNumber = "+34648985564"; // Cambia esto al número deseado
 
   // Cerrar sesión
   Future<void> _logout() async {
@@ -38,11 +44,20 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   void stopFlashing() {
     flashTimer?.cancel();
+    sosTimer?.cancel();
     setState(() {
       sosButtonColor = Colors.red;
       showOkButton = false;
       isFlashing = false;
       progress = 0.0;
+    });
+  }
+
+  void startSOSCountdown() {
+    sosTimer = Timer(const Duration(seconds: 10), () async {
+      // Si el temporizador no fue cancelado, realiza la llamada
+      await _makePhoneCall('tel:$emergencyNumber');
+      stopFlashing();
     });
   }
 
@@ -55,6 +70,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
       setState(() {
         progress += increment;
         if (progress >= 1.0) {
+          sosTimer?.cancel(); // Cancela la llamada SOS
           stopFlashing();
           timer.cancel();
         }
@@ -69,9 +85,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
     });
   }
 
+  Future<void> _makePhoneCall(String phoneNumber) async {
+  await FlutterPhoneDirectCaller.callNumber(phoneNumber);
+  }
+
   @override
   void dispose() {
     flashTimer?.cancel();
+    sosTimer?.cancel();
     longPressTimer?.cancel();
     super.dispose();
   }
@@ -86,7 +107,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'Cerrar sesión') {
-                _logout();  // Llamamos al método para cerrar sesión
+                _logout(); // Llamamos al método para cerrar sesión
               }
             },
             itemBuilder: (BuildContext context) {
@@ -111,6 +132,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
                       showOkButton = true;
                     });
                     startFlashing();
+                    startSOSCountdown(); // Inicia la cuenta regresiva para la llamada
                   }
                 },
                 style: ElevatedButton.styleFrom(

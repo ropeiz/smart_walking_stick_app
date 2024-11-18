@@ -7,6 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.stick_app"
+    
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
