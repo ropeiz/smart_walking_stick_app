@@ -36,7 +36,6 @@ class CognitoManager {
       AttributeArg(name: 'email', value: email),
       AttributeArg(name: 'custom:StickCode', value: stickCode), // Stick code
       AttributeArg(name: 'custom:Type', value: userType), // Tipo de usuario
-
     ];
 
     try {
@@ -94,4 +93,39 @@ class CognitoManager {
       throw CognitoServiceException(e.toString());
     }
   }
+
+  // Método para cerrar sesión
+  Future<void> signOut() async {
+  try {
+    // Obtener el usuario actual
+    final cognitoUser = await userPool.getCurrentUser();
+    if (cognitoUser == null) {
+      throw CognitoServiceException('No user is currently authenticated');
+    }
+
+    print('Usuario obtenido: ${cognitoUser.username}'); // Log para ver el usuario
+
+    // Intentamos obtener la sesión del usuario actual
+    final session = await cognitoUser.getSession();
+    print('Sesión obtenida: $session'); // Log para ver la sesión
+
+    // Si no hay sesión válida, lanzar una excepción
+    if (session == null) {
+      throw CognitoServiceException('No session found for the user');
+    }
+    if (!session.isValid()) {
+      throw CognitoServiceException('User session is not valid');
+    }
+
+    // Si la sesión es válida, proceder a cerrar sesión
+    await cognitoUser.signOut();
+    print('Sesión cerrada correctamente');
+  } catch (e) {
+    print('Error al intentar cerrar sesión: $e'); // Log del error completo
+    throw CognitoServiceException('Error al cerrar sesión: ${e.toString()}');
+  }
+}
+
+
+
 }

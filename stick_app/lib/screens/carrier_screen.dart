@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:stick_app/screens/start_screen.dart'; // Importación de StartScreen
 import 'dart:async';
+import 'package:stick_app/services/session_manager.dart'; // Importa el CognitoManager
 
 class CarrierScreen extends StatefulWidget {
   const CarrierScreen({super.key});
@@ -16,6 +17,16 @@ class _CarrierScreenState extends State<CarrierScreen> {
   Timer? flashTimer;
   Timer? longPressTimer;
   double progress = 0.0;
+
+  // Cerrar sesión
+  Future<void> _logout() async {
+    await SessionManager.clearUserSession();
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const StartScreen()), // Redirige a la pantalla de inicio
+      (route) => false, // Elimina todas las rutas anteriores
+    );
+  }
 
   void startFlashing() {
     flashTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
@@ -75,11 +86,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'Cerrar sesión') {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => const StartScreen()),
-                  (route) => false,
-                );
+                _logout();  // Llamamos al método para cerrar sesión
               }
             },
             itemBuilder: (BuildContext context) {

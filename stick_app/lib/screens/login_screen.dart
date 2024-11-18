@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:stick_app/services/cognito_manager.dart';
 import 'carrier_screen.dart';
 import 'supervisor_screen.dart';
+import 'package:stick_app/services/session_manager.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -33,39 +34,37 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   void _signIn() async {
-    final email = _emailController.text;
-    final password = _passwordController.text;
+  final email = _emailController.text;
+  final password = _passwordController.text;
 
-    try {
-      // Iniciar sesión y obtener el usuario
-      final user = await _cognitoManager.signIn(email, password);
-      
-      // Recuperar el tipo de usuario desde los atributos
-      final userType = user.claims['custom:Type']; // Asegúrate de usar el prefijo "custom:" si es un atributo personalizado
+  try {
+    final user = await _cognitoManager.signIn(email, password);
+    final userType = user.claims['custom:Type'] ?? 'Carrier';
 
-      if (userType == 'Carrier') {
-        // Navegar a la pantalla de Carrier
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const CarrierScreen()),
-        );
-      } else if (userType == 'Supervisor') {
-        // Navegar a la pantalla de Supervisor
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const SupervisorScreen()),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tipo de usuario desconocido')),
-        );
-      }
-    } catch (e) {
+    // Guardar sesión del usuario
+    await SessionManager.saveUserSession(userType);
+
+    if (userType == 'Carrier') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const CarrierScreen()),
+      );
+    } else if (userType == 'Supervisor') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const SupervisorScreen()),
+      );
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+        const SnackBar(content: Text('Tipo de usuario desconocido')),
       );
     }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: ${e.toString()}')),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:stick_app/services/cognito_manager.dart';
 import 'package:stick_app/screens/verification_screen.dart'; // Importar VerificationScreen
 
+
 class SignUpScreen extends StatelessWidget {
   const SignUpScreen({super.key});
 
@@ -36,41 +37,43 @@ class _SignUpFormState extends State<SignUpForm> {
     _cognitoManager.init();
   }
 
-  void _signUp() async {
-    final email = _emailController.text;
-    final password = _passwordController.text;
-    final stickCode = _stickCodeController.text;
-    final userType = _selectedUserType;
+ void _signUp() async {
+  final email = _emailController.text;
+  final password = _passwordController.text;
+  final stickCode = _stickCodeController.text;
+  final userType = _selectedUserType;
 
-    if (userType == null) {
+  if (userType == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Por favor, selecciona un tipo de usuario')),
+    );
+    return;
+  }
+
+  try {
+    // Llamada al registro en Cognito
+    await _cognitoManager.signUp(email, password, userType, stickCode);
+
+    // Si el registro es exitoso, navega a la pantalla de verificación
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VerificationScreen(email: email, userType: userType),
+      ),
+    );
+  } catch (e) {
+    if (e is CognitoServiceException) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor, selecciona un tipo de usuario')),
+        SnackBar(content: Text('Error: ${e.message}')),
       );
-      return;
-    }
-
-    try {
-      await _cognitoManager.signUp(email, password, userType, stickCode);
-
-      // Pasamos el tipo de usuario al VerificationScreen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => VerificationScreen(email: email, userType: userType),
-        ),
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error desconocido: ${e.toString()}')),
       );
-    } catch (e) {
-      if (e is CognitoServiceException) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.message}')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error desconocido: ${e.toString()}')),
-        );
-      }
     }
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
