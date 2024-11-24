@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:stick_app/services/cognito_manager.dart';
-import 'carrier_screen.dart';
-import 'supervisor_screen.dart';
-import 'package:stick_app/services/session_manager.dart';
+import 'dart:async';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -26,58 +23,27 @@ class LoginForm extends StatefulWidget {
 class _LoginFormState extends State<LoginForm> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  late final CognitoManager _cognitoManager;
   final FlutterReactiveBle _ble = FlutterReactiveBle();
   final List<DiscoveredDevice> _devicesList = [];
   bool _isScanning = false;
   String _statusMessage = "";
+  StreamSubscription<DiscoveredDevice>? _scanSubscription;
 
   @override
   void initState() {
     super.initState();
-    _cognitoManager = CognitoManager();
-    _cognitoManager.init();
   }
 
   Future<void> _requestPermissions() async {
-    await [
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.locationWhenInUse,
     ].request();
-  }
 
-  void _signIn() async {
-    final email = _emailController.text;
-    final password = _passwordController.text;
-
-    try {
-      final user = await _cognitoManager.signIn(email, password);
-      final userType = user.claims['custom:Type'] ?? 'Carrier';
-
-      // Guardar sesión del usuario
-      await SessionManager.saveUserSession(userType);
-
-      if (userType == 'Carrier') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const CarrierScreen()),
-        );
-      } else if (userType == 'Supervisor') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const SupervisorScreen()),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tipo de usuario desconocido')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
-    }
+    statuses.forEach((permission, status) {
+      print("$permission: $status");
+    });
   }
 
   void _scanForDevices() async {
@@ -89,15 +55,14 @@ class _LoginFormState extends State<LoginForm> {
       _statusMessage = "Buscando dispositivos BLE...";
     });
 
-    final scanStream = _ble.scanForDevices(withServices: []); // Sin filtros para detectar todos los dispositivos
-    final subscription = scanStream.listen((device) {
+    _scanSubscription = _ble.scanForDevices(withServices: []).listen((device) {
+      print("Dispositivo detectado: ${device.name} (${device.id})");
+
       setState(() {
         if (!_devicesList.any((d) => d.id == device.id)) {
           _devicesList.add(device);
         }
       });
-      print(
-          "Dispositivo encontrado: ID=${device.id}, Nombre=${device.name}, RSSI=${device.rssi}, Manufacturer Data=${device.manufacturerData}, Service UUIDs=${device.serviceData.keys}");
     }, onError: (error) {
       setState(() {
         _statusMessage = "Error durante el escaneo: $error";
@@ -105,10 +70,15 @@ class _LoginFormState extends State<LoginForm> {
       });
     });
 
-    // Detener el escaneo después de 30 segundos
-    await Future.delayed(const Duration(seconds: 30));
-    await subscription.cancel();
+    // Detener el escaneo automáticamente después de 30 segundos
+    Future.delayed(const Duration(seconds: 30), () {
+      _stopScanning();
+    });
+  }
 
+  void _stopScanning() {
+    _scanSubscription?.cancel();
+    _scanSubscription = null;
     setState(() {
       _isScanning = false;
       if (_devicesList.isEmpty) {
@@ -117,6 +87,83 @@ class _LoginFormState extends State<LoginForm> {
         _statusMessage = "Dispositivos encontrados:";
       }
     });
+  }
+
+  void _connectToDevice(DiscoveredDevice device) async {
+    if (_isScanning) {
+      _stopScanning();
+    }
+
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Conectando al dispositivo...')),
+      );
+
+      final connection = _ble.connectToDevice(
+        id: device.id,
+        servicesWithCharacteristicsToDiscover: {},
+      );
+
+      connection.listen(
+        (connectionState) {
+          print('Estado de conexión: $connectionState');
+          if (connectionState.connectionState == DeviceConnectionState.connected) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Conexión establecida')),
+            );
+
+            _discoverAndReadCharacteristics(device.id);
+          }
+        },
+        onError: (error) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al conectar: $error')),
+          );
+        },
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  void _discoverAndReadCharacteristics(String deviceId) async {
+    try {
+      final discoveredServices = await _ble.discoverServices(deviceId);
+      for (var service in discoveredServices) {
+        print('Servicio encontrado: ${service.serviceId}');
+        for (var characteristic in service.characteristics) {
+          print('  Característica: ${characteristic.characteristicId}');
+
+          final qualifiedCharacteristic = QualifiedCharacteristic(
+            deviceId: deviceId,
+            serviceId: service.serviceId,
+            characteristicId: characteristic.characteristicId,
+          );
+
+          if (characteristic.isReadable) {
+            final value = await _ble.readCharacteristic(qualifiedCharacteristic);
+            print('Datos leídos de ${characteristic.characteristicId}: $value');
+          }
+
+          if (characteristic.isNotifiable) {
+            _ble.subscribeToCharacteristic(qualifiedCharacteristic).listen(
+              (data) {
+                print('Datos recibidos de ${characteristic.characteristicId}: $data');
+              },
+              onError: (error) {
+                print('Error al suscribirse: $error');
+              },
+            );
+          }
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al descubrir servicios/características: $e')),
+      );
+    }
   }
 
   @override
@@ -131,11 +178,6 @@ class _LoginFormState extends State<LoginForm> {
             decoration: const InputDecoration(labelText: 'Password'),
             obscureText: true,
           ),
-          ElevatedButton(
-            onPressed: _signIn,
-            child: const Text('Sign In'),
-          ),
-          const SizedBox(height: 20),
           ElevatedButton(
             onPressed: _isScanning ? null : _scanForDevices,
             child: const Text('Scan Bluetooth Devices'),
@@ -152,11 +194,14 @@ class _LoginFormState extends State<LoginForm> {
                 return ListTile(
                   title: Text(device.name.isNotEmpty ? device.name : 'Unknown Device'),
                   subtitle: Text(
-                      'ID: ${device.id}\nRSSI: ${device.rssi}\nManufacturer Data: ${device.manufacturerData}\nService UUIDs: ${device.serviceData.keys.join(", ")}'),
-                  onTap: () async {
+                    'ID: ${device.id}\nRSSI: ${device.rssi}',
+                  ),
+                  onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
                     );
+
+                    _connectToDevice(device);
                   },
                 );
               },
