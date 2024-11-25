@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'dart:async';
+import 'dart:typed_data';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -27,7 +27,7 @@ class _LoginFormState extends State<LoginForm> {
   final List<DiscoveredDevice> _devicesList = [];
   bool _isScanning = false;
   String _statusMessage = "";
-  StreamSubscription<DiscoveredDevice>? _scanSubscription;
+  String _receivedData = ""; // Para mostrar los datos decodificados
 
   @override
   void initState() {
@@ -55,9 +55,13 @@ class _LoginFormState extends State<LoginForm> {
       _statusMessage = "Buscando dispositivos BLE...";
     });
 
-    _scanSubscription = _ble.scanForDevices(withServices: []).listen((device) {
+    // Escaneo sin filtros
+    final scanStream = _ble.scanForDevices(withServices: []);
+
+    final subscription = scanStream.listen((device) {
       print("Dispositivo detectado: ${device.name} (${device.id})");
 
+      // Guarda cualquier dispositivo encontrado
       setState(() {
         if (!_devicesList.any((d) => d.id == device.id)) {
           _devicesList.add(device);
@@ -70,15 +74,10 @@ class _LoginFormState extends State<LoginForm> {
       });
     });
 
-    // Detener el escaneo automáticamente después de 30 segundos
-    Future.delayed(const Duration(seconds: 30), () {
-      _stopScanning();
-    });
-  }
+    // Detenemos el escaneo después de 30 segundos
+    await Future.delayed(const Duration(seconds: 30));
+    await subscription.cancel();
 
-  void _stopScanning() {
-    _scanSubscription?.cancel();
-    _scanSubscription = null;
     setState(() {
       _isScanning = false;
       if (_devicesList.isEmpty) {
@@ -90,18 +89,15 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   void _connectToDevice(DiscoveredDevice device) async {
-    if (_isScanning) {
-      _stopScanning();
-    }
-
     try {
+      // Muestra un mensaje mientras se conecta
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Conectando al dispositivo...')),
       );
 
       final connection = _ble.connectToDevice(
         id: device.id,
-        servicesWithCharacteristicsToDiscover: {},
+        servicesWithCharacteristicsToDiscover: {}, // Descubrir todas las características
       );
 
       connection.listen(
@@ -112,6 +108,7 @@ class _LoginFormState extends State<LoginForm> {
               const SnackBar(content: Text('Conexión establecida')),
             );
 
+            // Llama a la función para leer datos
             _discoverAndReadCharacteristics(device.id);
           }
         },
@@ -130,27 +127,44 @@ class _LoginFormState extends State<LoginForm> {
 
   void _discoverAndReadCharacteristics(String deviceId) async {
     try {
+      // Descubre servicios y características
       final discoveredServices = await _ble.discoverServices(deviceId);
       for (var service in discoveredServices) {
         print('Servicio encontrado: ${service.serviceId}');
         for (var characteristic in service.characteristics) {
           print('  Característica: ${characteristic.characteristicId}');
 
+          // Crear un QualifiedCharacteristic para esta característica
           final qualifiedCharacteristic = QualifiedCharacteristic(
             deviceId: deviceId,
             serviceId: service.serviceId,
             characteristicId: characteristic.characteristicId,
           );
 
+          // Leer los datos directamente si la característica es legible
           if (characteristic.isReadable) {
             final value = await _ble.readCharacteristic(qualifiedCharacteristic);
             print('Datos leídos de ${characteristic.characteristicId}: $value');
           }
 
+          // Suscribirse si la característica es notificable
           if (characteristic.isNotifiable) {
             _ble.subscribeToCharacteristic(qualifiedCharacteristic).listen(
               (data) {
-                print('Datos recibidos de ${characteristic.characteristicId}: $data');
+                // Decodifica los datos recibidos
+                if (data.length >= 12) {
+                  final x = _decodeFloat32(data.sublist(0, 4));
+                  final y = _decodeFloat32(data.sublist(4, 8));
+                  final z = _decodeFloat32(data.sublist(8, 12));
+
+                  setState(() {
+                    _receivedData = "Acelerómetro:\nX=$x\nY=$y\nZ=$z";
+                  });
+                } else {
+                  setState(() {
+                    _receivedData = "Datos insuficientes recibidos: $data";
+                  });
+                }
               },
               onError: (error) {
                 print('Error al suscribirse: $error');
@@ -164,6 +178,11 @@ class _LoginFormState extends State<LoginForm> {
         SnackBar(content: Text('Error al descubrir servicios/características: $e')),
       );
     }
+  }
+
+  double _decodeFloat32(List<int> bytes) {
+    final buffer = Uint8List.fromList(bytes).buffer.asByteData();
+    return buffer.getFloat32(0, Endian.little);
   }
 
   @override
@@ -197,16 +216,20 @@ class _LoginFormState extends State<LoginForm> {
                     'ID: ${device.id}\nRSSI: ${device.rssi}',
                   ),
                   onTap: () {
+                    // Muestra un mensaje al seleccionar
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
                     );
 
+                    // Llama a _connectToDevice sin await
                     _connectToDevice(device);
                   },
                 );
               },
             ),
           ),
+          const SizedBox(height: 10),
+          if (_receivedData.isNotEmpty) Text(_receivedData, textAlign: TextAlign.center),
         ],
       ),
     );
