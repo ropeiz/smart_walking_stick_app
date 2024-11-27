@@ -47,16 +47,18 @@ class SplashScreen extends StatelessWidget {
   }
 
   Future<Widget> _getInitialScreen() async {
-    final isLoggedIn = await SessionManager.isLoggedIn();
-    if (!isLoggedIn) return const StartScreen();
+  final isLoggedIn = await SessionManager.isLoggedIn();
+  if (!isLoggedIn) return const StartScreen();
 
-    final userRole = await SessionManager.getUserRole();
-    if (userRole == 'Carrier') {
-      return const CarrierScreen();
-    } else if (userRole == 'Supervisor') {
-      return const SupervisorScreen();
-    } else {
-      return const StartScreen();
-    }
+  final user = await SessionManager.getUserSession();
+  if (user == null) return const StartScreen(); // Manejar el caso donde no haya datos del usuario
+
+  if (user.userType == 'Carrier') {
+    return CarrierScreen(user: user); // Pasa el objeto User
+  } else if (user.userType == 'Supervisor') {
+    return SupervisorScreen(); // Similar para Supervisor
+  } else {
+    return const StartScreen();
   }
+}
 }

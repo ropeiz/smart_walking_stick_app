@@ -12,11 +12,12 @@ class User {
   bool sessionValid;
   String? userSub;
   Map<String, dynamic> claims;
-  String userType; // Nuevo campo para tipo de usuario
-  String? stickCode; // Nuevo campo para el stick code
+  String userType;
+  String? stickCode;
+  String jwtToken; // Nuevo campo para almacenar el JWT token
 
   User(this.username, this.userConfirmed, this.sessionValid, this.userSub,
-      this.claims, this.userType, this.stickCode);
+      this.claims, this.userType, this.stickCode, this.jwtToken);
 }
 
 class CognitoManager {
@@ -30,29 +31,31 @@ class CognitoManager {
   }
 
   // Modificación de la función signUp para incluir tipo de usuario y stick code
-  Future<User> signUp(
-      String email, String password, String userType, String stickCode) async {
-    final userAttributes = [
-      AttributeArg(name: 'email', value: email),
-      AttributeArg(name: 'custom:StickCode', value: stickCode), // Stick code
-      AttributeArg(name: 'custom:Type', value: userType), // Tipo de usuario
-    ];
+Future<User> signUp(
+    String email, String password, String userType, String stickCode) async {
+  final userAttributes = [
+    AttributeArg(name: 'email', value: email),
+    AttributeArg(name: 'custom:StickCode', value: stickCode), // Stick code
+    AttributeArg(name: 'custom:Type', value: userType), // Tipo de usuario
+  ];
 
-    try {
-      final result = await userPool.signUp(email, password,
-          userAttributes: userAttributes);
-      return User(
-          email,
-          result.userConfirmed ?? false,
-          false,
-          result.userSub,
-          {},
-          userType, // Almacenamos el tipo de usuario
-          stickCode); // Almacenamos el stick code
-    } catch (e) {
-      throw CognitoServiceException(e.toString());
-    }
+  try {
+    final result = await userPool.signUp(email, password,
+        userAttributes: userAttributes);
+    return User(
+        email,
+        result.userConfirmed ?? false,
+        false,
+        result.userSub,
+        {},
+        userType, // Almacenamos el tipo de usuario
+        stickCode, // Almacenamos el stick code
+        ''); // jwtToken predeterminado vacío
+  } catch (e) {
+    throw CognitoServiceException(e.toString());
   }
+}
+
 
   Future<bool> confirmUser(String email, String confirmationCode) async {
     final cognitoUser = CognitoUser(email, userPool);
@@ -64,35 +67,39 @@ class CognitoManager {
   }
 
   Future<User> signIn(String email, String password) async {
-    final cognitoUser = CognitoUser(email, userPool);
-    final authDetails =
-        AuthenticationDetails(username: email, password: password);
+  final cognitoUser = CognitoUser(email, userPool);
+  final authDetails =
+      AuthenticationDetails(username: email, password: password);
 
-    try {
-      final session = await cognitoUser.authenticateUser(authDetails);
-      if (session == null) {
-        throw CognitoClientException("session not found");
-      }
-      var claims = <String, dynamic>{};
-      claims.addAll(session.idToken.payload);
-      claims.addAll(session.accessToken.payload);
-
-      // Obtener el tipo de usuario y el stick code desde los atributos personalizados
-      String userType = claims['custom:Type'] ?? 'Carrier'; // Por defecto Carrier
-      String? stickCode = claims['custom:StickCode'];
-
-      return User(
-          email,
-          true,
-          session.isValid(),
-          session.idToken.getSub() ?? "",
-          claims,
-          userType, // Añadir el tipo de usuario al objeto User
-          stickCode); // Añadir el stick code al objeto User
-    } catch (e) {
-      throw CognitoServiceException(e.toString());
+  try {
+    final session = await cognitoUser.authenticateUser(authDetails);
+    if (session == null) {
+      throw CognitoClientException("session not found");
     }
+    var claims = <String, dynamic>{};
+    claims.addAll(session.idToken.payload);
+    claims.addAll(session.accessToken.payload);
+
+    // Obtener el tipo de usuario y el stick code desde los atributos personalizados
+    String userType = claims['custom:Type'] ?? 'Carrier'; // Por defecto Carrier
+    String? stickCode = claims['custom:StickCode'];
+
+    // Extraer el JWT token
+    String jwtToken = session.idToken.jwtToken!; // Puedes usar accessToken.jwtToken si lo prefieres
+
+    return User(
+        email,
+        true,
+        session.isValid(),
+        session.idToken.getSub() ?? "",
+        claims,
+        userType, // Añadir el tipo de usuario al objeto User
+        stickCode, // Añadir el stick code al objeto User
+        jwtToken); // Añadir el JWT token al objeto User
+  } catch (e) {
+    throw CognitoServiceException(e.toString());
   }
+}
 
   // Método para cerrar sesión
   Future<void> signOut() async {

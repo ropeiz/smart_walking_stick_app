@@ -38,16 +38,19 @@ class _LoginFormState extends State<LoginForm> {
   final password = _passwordController.text;
 
   try {
+    // Iniciar sesión y obtener la respuesta del usuario
     final user = await _cognitoManager.signIn(email, password);
-    final userType = user.claims['custom:Type'] ?? 'Carrier';
 
     // Guardar sesión del usuario
-    await SessionManager.saveUserSession(userType);
+    final userType = user.userType; // Aquí obtienes el tipo directamente del objeto User
 
+    await SessionManager.saveUserSession(user);
+
+    // Redirigir según el tipo de usuario
     if (userType == 'Carrier') {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const CarrierScreen()),
+        MaterialPageRoute(builder: (context) => CarrierScreen(user: user)),
       );
     } else if (userType == 'Supervisor') {
       Navigator.pushReplacement(
