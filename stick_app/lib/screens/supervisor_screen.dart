@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'start_screen.dart';
@@ -16,13 +17,13 @@ class SupervisorScreen extends StatefulWidget {
 }
 
 class _SupervisorScreenState extends State<SupervisorScreen> {
-  final String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
+  final String apiUrl =
+      "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
   LatLng? sensorLocation;
   String lastUpdate = 'No data received';
 
-  // Controlador del mapa
-  GoogleMapController? mapController;
-  final Set<Marker> _markers = {};
+  // Marcadores para el mapa
+  final List<Marker> _markers = [];
 
   // Función para obtener datos del sensor
   Future<void> getSensorData() async {
@@ -58,19 +59,15 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
             _markers.clear();
             _markers.add(
               Marker(
-                markerId: const MarkerId("sensorLocation"),
-                position: sensorLocation!,
-                infoWindow: const InfoWindow(title: "Sensor Location"),
+                point: sensorLocation!,
+                child: const Icon(
+                  Icons.location_on,
+                  color: Colors.red,
+                  size: 40,
+                ),
               ),
             );
           });
-
-          // Mover el mapa a las nuevas coordenadas
-          if (mapController != null) {
-            mapController!.animateCamera(
-              CameraUpdate.newLatLng(sensorLocation!),
-            );
-          }
         } else {
           print("Error: Coordenadas no válidas en los datos recibidos.");
         }
@@ -83,8 +80,10 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
   }
 
   // Función que obtiene los datos GPS a través de la API
-  Future<List<Map<String, dynamic>>> fetchGPSData(String stickCode, String date, String jwtToken) async {
-    final String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/GPS";
+  Future<List<Map<String, dynamic>>> fetchGPSData(
+      String stickCode, String date, String jwtToken) async {
+    final String apiUrl =
+        "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/GPS";
 
     try {
       // Cuerpo de la solicitud
@@ -112,14 +111,13 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
 
-        print("Muestro datos");
-        print(responseData);
-
         if (responseData.containsKey('body')) {
           final bodyData = jsonDecode(responseData['body']);
 
-          if (bodyData.containsKey('gps_data') && bodyData['gps_data'] != null) {
-            final gpsData = List<Map<String, dynamic>>.from(bodyData['gps_data']);
+          if (bodyData.containsKey('gps_data') &&
+              bodyData['gps_data'] != null) {
+            final gpsData =
+                List<Map<String, dynamic>>.from(bodyData['gps_data']);
             return gpsData;
           } else {
             print("Error: No se encontraron datos GPS en el campo 'body'.");
@@ -160,7 +158,8 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
             },
             itemBuilder: (BuildContext context) {
               return {'Logs', 'Cerrar sesión'}.map((String choice) {
-                return PopupMenuItem<String>(value: choice, child: Text(choice));
+                return PopupMenuItem<String>(
+                    value: choice, child: Text(choice));
               }).toList();
             },
           ),
@@ -169,15 +168,21 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
       body: Column(
         children: [
           Expanded(
-            child: GoogleMap(
-              onMapCreated: (controller) {
-                mapController = controller;
-              },
-              initialCameraPosition: CameraPosition(
-                target: sensorLocation ?? const LatLng(0, 0),
-                zoom: 15,
+            child: FlutterMap(
+              options: MapOptions(
+                // Cambié 'center' por 'initialCenter' en la nueva versión de flutter_map
+                initialCenter: sensorLocation ?? LatLng(0, 0), // Centrar el mapa
+                initialZoom: 15, // Nivel de zoom
               ),
-              markers: _markers,
+              children: [
+                TileLayer(
+                  urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  subdomains: ['a', 'b', 'c'],
+                ),
+                MarkerLayer(
+                  markers: _markers,
+                ),
+              ],
             ),
           ),
           Padding(
