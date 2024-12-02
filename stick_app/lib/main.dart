@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:stick_app/screens/carrier_screen.dart';
 import 'package:stick_app/screens/start_screen.dart';
-import 'package:stick_app/screens/supervisor_screen.dart';
 import 'package:stick_app/screens/login_screen.dart';
-import 'package:stick_app/services/session_manager.dart';
+
 
 void main() {
   runApp(const MyApp());
@@ -47,18 +45,7 @@ class SplashScreen extends StatelessWidget {
   }
 
   Future<Widget> _getInitialScreen() async {
-  final isLoggedIn = await SessionManager.isLoggedIn();
-  if (!isLoggedIn) return const StartScreen();
+  return const StartScreen();
 
-  final user = await SessionManager.getUserSession();
-  if (user == null) return const StartScreen(); // Manejar el caso donde no haya datos del usuario
-
-  if (user.userType == 'Carrier') {
-    return CarrierScreen(user: user); // Pasa el objeto User
-  } else if (user.userType == 'Supervisor') {
-    return SupervisorScreen(); // Similar para Supervisor
-  } else {
-    return const StartScreen();
-  }
 }
 }

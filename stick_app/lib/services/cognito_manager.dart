@@ -1,9 +1,14 @@
 import 'package:amazon_cognito_identity_dart_2/cognito.dart';
 import 'package:stick_app/config/config.dart';
 
+
 class CognitoServiceException implements Exception {
   final String message;
+
   CognitoServiceException(this.message);
+
+  @override
+  String toString() => message; // Devuelve el mensaje al imprimir la excepción
 }
 
 class User {
@@ -100,6 +105,74 @@ Future<User> signUp(
     throw CognitoServiceException(e.toString());
   }
 }
+
+ Future<User?> refreshSession() async {
+  try {
+    final cognitoUser = await userPool.getCurrentUser();
+    if (cognitoUser == null) {
+      throw CognitoServiceException('No user is currently authenticated');
+    }
+
+    // Intenta obtener la sesión actual
+    final session = await cognitoUser.getSession();
+    if (session == null) {
+      throw CognitoServiceException('No session found for the user');
+    }
+
+    if (!session.isValid()) {
+      // Refresca la sesión si no es válida
+      if (session.refreshToken == null) {
+        throw CognitoServiceException('No refresh token found to refresh the session');
+      }
+
+      final refreshedSession = await cognitoUser.refreshSession(session.refreshToken!);
+      if (refreshedSession == null) {
+        throw CognitoServiceException('Failed to refresh session');
+      }
+
+      // Obtener los datos del usuario actualizados
+      var claims = <String, dynamic>{};
+      claims.addAll(refreshedSession.idToken.payload);
+      claims.addAll(refreshedSession.accessToken.payload);
+
+      String userType = claims['custom:Type'] ?? 'Carrier'; // Por defecto Carrier
+      String? stickCode = claims['custom:StickCode'];
+
+      return User(
+        cognitoUser.username ?? '',
+        true,
+        refreshedSession.isValid(),
+        refreshedSession.idToken.getSub() ?? '',
+        claims,
+        userType,
+        stickCode,
+        refreshedSession.idToken.jwtToken!,
+      );
+    }
+
+    // Si la sesión es válida, no hay necesidad de refrescarla
+    return User(
+      cognitoUser.username ?? '',
+      true,
+      session.isValid(),
+      session.idToken.getSub() ?? '',
+      session.idToken.payload,
+      session.idToken.payload['custom:Type'] ?? 'Carrier',
+      session.idToken.payload['custom:StickCode'],
+      session.idToken.jwtToken!,
+    );
+  } on CognitoServiceException catch (e) {
+    // Manejar excepciones personalizadas
+    print('Error al refrescar la sesión: $e'); // 'e' imprimirá el mensaje gracias a `toString()`
+    return null;
+  } catch (e) {
+    // Manejar cualquier otra excepción
+    print('Error inesperado al refrescar la sesión: $e');
+    return null;
+  }
+}
+
+
 
   // Método para cerrar sesión
   Future<void> signOut() async {

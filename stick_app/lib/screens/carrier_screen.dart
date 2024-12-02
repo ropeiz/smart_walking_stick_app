@@ -60,27 +60,28 @@ void sendSensorData() async {
 
     final jwtToken = user.jwtToken;
     final username = user.username;
+    final stickCode = user.stickCode;
 
     print('JWT Token: $jwtToken');
 
     // JSON payload
     final requestBody = {
-      "device_id": "SWS1",
+      "stick_code": stickCode,
       "GPS_device": {
-        "latitude": 41.3851,
-        "longitude": 2.1734,
-        "altitude": 15.3,
+        "latitude": "46.3151",
+        "longitude": "82.3434",
+        "altitude": "15.3",
       },
       "IMU": {
-        "accelerometer": {"x": 0.02, "y": -0.98, "z": 9.81},
-        "gyroscope": {"x": 0.01, "y": 0.02, "z": 0.00},
-        "magnetometer": {"x": 30.1, "y": -15.4, "z": 42.8},
+        "accelerometer": {"x": "0.02", "y": "-0.98", "z": "9.81"},
+        "gyroscope": {"x": "0.01", "y": "0.02", "z": "0.00"},
+        "magnetometer": {"x": "30.1", "y": "-15.4", "z": "42.8"},
       },
       "pressure": {
-        "sensor_1": 20,
-        "sensor_2": 22,
+        "sensor_1": "20",
+        "sensor_2": "22",
       },
-      "battery": 85,
+      "battery": "85",
       "user": username, // Include the username in the payload
     };
 

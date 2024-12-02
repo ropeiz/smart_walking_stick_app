@@ -55,7 +55,7 @@ class _LoginFormState extends State<LoginForm> {
     } else if (userType == 'Supervisor') {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const SupervisorScreen()),
+        MaterialPageRoute(builder: (context) => SupervisorScreen(user: user)),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
