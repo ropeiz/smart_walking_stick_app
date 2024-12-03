@@ -29,7 +29,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
   double progress = 0.0;
 
   // Número de teléfono al que se llamará
-  final String emergencyNumber = "+34648985564"; // Cambia esto al número deseado
+  final String emergencyNumber = "+34648985584"; // Cambia esto al número deseado
 
   // Generador de coordenadas aleatorias
   LatLng generateRandomCoordinate(LatLng center, double radius) {
@@ -69,6 +69,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
     const String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/emergency";
 
     try {
+      // Obtener datos del usuario desde SessionManager
       final user = await SessionManager.getUserSession();
       if (user == null) {
         print("Error: Usuario no autenticado.");
@@ -77,22 +78,26 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
       final jwtToken = user.jwtToken;
 
+      // Generamos coordenadas aleatorias alrededor del centro de Central Park
       LatLng centralParkCenter = LatLng(40.785091, -73.968285); // Centro de Central Park
       double radius = 0.001; // Radio para generar las coordenadas aleatorias
 
       LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
 
+      // JSON payload
       final requestBody = {
         "stickCarrier": "John's Smart Cane",
         "email": "ropson2663@gmail.com",
         "gpsLocation": "${randomCoordinate.latitude}, ${randomCoordinate.longitude}",
       };
 
+      // Headers with Cognito JWT token
       final headers = {
         "Content-Type": "application/json",
         "Authorization": jwtToken,
       };
 
+      // POST request to API Gateway
       final response = await http.post(
         Uri.parse(apiUrl),
         headers: headers,
@@ -110,12 +115,124 @@ class _CarrierScreenState extends State<CarrierScreen> {
     }
   }
 
+  // Función para enviar datos con coordenadas aleatorias
+  void sendSensorData() async {
+    final String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
+
+    try {
+      final user = await SessionManager.getUserSession();
+      if (user == null) {
+        print("Error: Usuario no autenticado.");
+        return;
+      }
+
+      final jwtToken = user.jwtToken;
+      final username = user.username;
+      final stickCode = user.stickCode;
+
+      print('JWT Token: $jwtToken');
+
+      LatLng centralParkCenter = LatLng(40.785091, -73.968285); // Centro de Central Park
+      double radius = 0.001; // Radio para generar las coordenadas aleatorias
+
+      LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
+
+      final requestBody = {
+        "stick_code": stickCode,
+        "GPS_device": {
+          "latitude": randomCoordinate.latitude.toString(),
+          "longitude": randomCoordinate.longitude.toString(),
+          "altitude": "15.3",
+        },
+        "IMU": {
+          "accelerometer": {"x": "0.02", "y": "-0.98", "z": "9.81"},
+          "gyroscope": {"x": "0.01", "y": "0.02", "z": "0.00"},
+          "magnetometer": {"x": "30.1", "y": "-15.4", "z": "42.8"},
+        },
+        "pressure": {
+          "sensor_1": "20",
+          "sensor_2": "22",
+        },
+        "battery": "85",
+        "user": username,
+      };
+
+      final headers = {
+        "Content-Type": "application/json",
+        "Authorization": jwtToken,
+      };
+
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: headers,
+        body: jsonEncode(requestBody),
+      );
+
+      if (response.statusCode == 200) {
+        print("Data sent successfully: ${response.body}");
+      } else {
+        print("Error sending data: ${response.statusCode}");
+        print("Response body: ${response.body}");
+      }
+    } catch (e) {
+      print("Exception occurred: $e");
+    }
+  }
+
+  void stopFlashing() {
+    flashTimer?.cancel();
+    sosTimer?.cancel();
+    emergencyTimer?.cancel(); // Cancela el temporizador de emergencia
+    setState(() {
+      sosButtonColor = Colors.red;
+      showOkButton = false;
+      isFlashing = false;
+      progress = 0.0;
+    });
+  }
+
+  void startLongPress() {
+    const pressDuration = Duration(milliseconds: 2500); // 2.5 segundos
+    final interval = const Duration(milliseconds: 50); // Intervalo de actualización
+    final increment = interval.inMilliseconds / pressDuration.inMilliseconds; // Incremento de progreso
+
+    longPressTimer = Timer.periodic(interval, (timer) {
+      setState(() {
+        progress += increment;
+        if (progress >= 1.0) {
+          sosTimer?.cancel(); // Cancela la llamada SOS
+          stopFlashing();
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  void cancelLongPress() {
+    longPressTimer?.cancel();
+    setState(() {
+      progress = 0.0; // Restablece el progreso si se cancela la pulsación larga
+    });
+  }
+
+  // Navegar a la pantalla de Bluetooth y pasar el usuario
+  void navigateToBluetoothScreen() {
+    Navigator.push(
+  context,
+  MaterialPageRoute(
+    //builder: (context) => BluetoothScreen(user: widget.user),
+    builder: (context) => BluetoothScreen(),
+  ),
+);
+
+  }
+
   @override
   void dispose() {
     flashTimer?.cancel();
     sosTimer?.cancel();
     longPressTimer?.cancel();
-    emergencyTimer?.cancel();
+    emergencyTimer?.cancel(); // Limpia el temporizador de emergencia
     super.dispose();
   }
 
@@ -129,12 +246,9 @@ class _CarrierScreenState extends State<CarrierScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'Cerrar sesión') {
-                _logout();
+                _logout(); // Llamamos al método para cerrar sesión
               } else if (value == 'Bluetooth') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => BluetoothScreen()),
-                );
+                navigateToBluetoothScreen(); // Llama a la función para Bluetooth
               }
             },
             itemBuilder: (BuildContext context) {
@@ -146,13 +260,21 @@ class _CarrierScreenState extends State<CarrierScreen> {
         ],
       ),
       body: Container(
-        color: Colors.lightBlue[50],
+        color: Colors.lightBlue[50], // Fondo azul claro
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               ElevatedButton(
-                onPressed: startFlashing,
+                onPressed: () {
+                  if (!isFlashing) {
+                    setState(() {
+                      isFlashing = true;
+                      showOkButton = true;
+                    });
+                    startFlashing();
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: sosButtonColor,
                   minimumSize: const Size(200, 200),
@@ -160,8 +282,53 @@ class _CarrierScreenState extends State<CarrierScreen> {
                 child: const Text('SOS', style: TextStyle(fontSize: 24)),
               ),
               const SizedBox(height: 20),
+              if (showOkButton)
+                GestureDetector(
+                  onLongPressStart: (_) {
+                    startLongPress();
+                  },
+                  onLongPressEnd: (_) {
+                    cancelLongPress();
+                  },
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ElevatedButton(
+                        onPressed: null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          disabledForegroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.green,
+                          minimumSize: const Size(150, 70),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'OK',
+                          style: TextStyle(fontSize: 24),
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            height: 70, // Altura de la barra
+                            width: 150 * progress, // Ancho proporcional al progreso
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: sendEmergencyMessage,
+                onPressed: sendSensorData,
                 child: const Text('Enviar Datos'),
               ),
             ],

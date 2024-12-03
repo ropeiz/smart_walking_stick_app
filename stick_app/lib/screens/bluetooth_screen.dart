@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:typed_data';
 
 class BluetoothScreen extends StatefulWidget {
   @override
@@ -12,6 +13,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   final List<DiscoveredDevice> _devicesList = [];
   bool _isScanning = false;
   String _statusMessage = "";
+  String _receivedData = ""; // Para mostrar los datos decodificados
 
   @override
   void initState() {
@@ -32,26 +34,26 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   }
 
   void _scanForDevices() async {
+    await _requestPermissions();
+
     setState(() {
       _devicesList.clear();
       _isScanning = true;
       _statusMessage = "Buscando dispositivos BLE...";
     });
 
-    // Escaneo con filtro de nombre
+    // Escaneo sin filtros
     final scanStream = _ble.scanForDevices(withServices: []);
 
     final subscription = scanStream.listen((device) {
-      // Filtrar solo dispositivos que contengan "IoT" en el nombre
-      if (device.name.contains("IoT")) {
-        print("Dispositivo detectado: ${device.name} (${device.id})");
+      print("Dispositivo detectado: ${device.name} (${device.id})");
 
-        setState(() {
-          if (!_devicesList.any((d) => d.id == device.id)) {
-            _devicesList.add(device);
-          }
-        });
-      }
+      // Guarda cualquier dispositivo encontrado
+      setState(() {
+        if (!_devicesList.any((d) => d.id == device.id)) {
+          _devicesList.add(device);
+        }
+      });
     }, onError: (error) {
       setState(() {
         _statusMessage = "Error durante el escaneo: $error";
@@ -59,8 +61,8 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
       });
     });
 
-    // Detenemos el escaneo después de 5 segundos
-    await Future.delayed(const Duration(seconds: 5));
+    // Detenemos el escaneo después de 10 segundos
+    await Future.delayed(const Duration(seconds: 10));
     await subscription.cancel();
 
     setState(() {
@@ -75,26 +77,26 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
   void _connectToDevice(DiscoveredDevice device) async {
     try {
+      // Muestra un mensaje mientras se conecta
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Conectando al dispositivo ${device.name}...')),
+        const SnackBar(content: Text('Conectando al dispositivo...')),
       );
 
       final connection = _ble.connectToDevice(
         id: device.id,
-        servicesWithCharacteristicsToDiscover: {},
+        servicesWithCharacteristicsToDiscover: {}, // Descubrir todas las características
       );
 
       connection.listen(
-        (connectionState) async {
+        (connectionState) {
           print('Estado de conexión: $connectionState');
-
           if (connectionState.connectionState == DeviceConnectionState.connected) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Conexión establecida con ${device.name}')),
+              const SnackBar(content: Text('Conexión establecida')),
             );
 
             // Llama a la función para leer datos
-            await _discoverAndReadCharacteristics(device.id);
+            _discoverAndReadCharacteristics(device.id);
           }
         },
         onError: (error) {
@@ -110,11 +112,16 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
     }
   }
 
-  Future<void> _discoverAndReadCharacteristics(String deviceId) async {
+  void _discoverAndReadCharacteristics(String deviceId) async {
     try {
+      // Descubre servicios y características
       final discoveredServices = await _ble.discoverServices(deviceId);
       for (var service in discoveredServices) {
+        print('Servicio encontrado: ${service.serviceId}');
         for (var characteristic in service.characteristics) {
+          print('  Característica: ${characteristic.characteristicId}');
+
+          // Crear un QualifiedCharacteristic para esta característica
           final qualifiedCharacteristic = QualifiedCharacteristic(
             deviceId: deviceId,
             serviceId: service.serviceId,
@@ -125,10 +132,14 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
           if (characteristic.isNotifiable) {
             _ble.subscribeToCharacteristic(qualifiedCharacteristic).listen(
               (data) {
-                print('Datos recibidos de ${qualifiedCharacteristic.characteristicId}: $data');
+                if (data.isNotEmpty) {
+                  _decodeAndLogSensorData(Uint8List.fromList(data));
+                } else {
+                  print('Datos insuficientes recibidos: $data');
+                }
               },
               onError: (error) {
-                print('Error al recibir datos: $error');
+                print('Error al suscribirse: $error');
               },
             );
           }
@@ -138,6 +149,58 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al descubrir servicios/características: $e')),
       );
+    }
+  }
+
+  void _decodeAndLogSensorData(Uint8List data) {
+    final buffer = ByteData.sublistView(data);
+
+    // Identificar el paquete por su primer byte
+    final int identifier = buffer.getUint8(0);
+
+    switch (identifier) {
+      case 0x01: // Acelerómetro
+        final accelerometer = [
+          buffer.getFloat32(1, Endian.little),
+          buffer.getFloat32(5, Endian.little),
+          buffer.getFloat32(9, Endian.little),
+        ];
+        print('Acelerómetro: X=${accelerometer[0]}, Y=${accelerometer[1]}, Z=${accelerometer[2]}');
+        break;
+
+      case 0x02: // Giroscopio
+        final gyroscope = [
+          buffer.getFloat32(1, Endian.little),
+          buffer.getFloat32(5, Endian.little),
+          buffer.getFloat32(9, Endian.little),
+        ];
+        print('Giroscopio: X=${gyroscope[0]}, Y=${gyroscope[1]}, Z=${gyroscope[2]}');
+        break;
+
+      case 0x03: // Magnetómetro
+        final magnetometer = [
+          buffer.getFloat32(1, Endian.little),
+          buffer.getFloat32(5, Endian.little),
+          buffer.getFloat32(9, Endian.little),
+        ];
+        print('Magnetómetro: X=${magnetometer[0]}, Y=${magnetometer[1]}, Z=${magnetometer[2]}');
+        break;
+
+      case 0x04: // Presión
+        final pressure = [
+          buffer.getFloat32(1, Endian.little),
+          buffer.getFloat32(5, Endian.little),
+        ];
+        print('Presión: Sensor 1=${pressure[0]}, Sensor 2=${pressure[1]}');
+        break;
+
+      case 0x05: // Batería
+        final battery = buffer.getFloat32(1, Endian.little);
+        print('Batería: $battery%');
+        break;
+
+      default:
+        print('Identificador desconocido: $identifier. Datos sin procesar: $data');
     }
   }
 
@@ -166,8 +229,15 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
                   final device = _devicesList[index];
                   return ListTile(
                     title: Text(device.name.isNotEmpty ? device.name : 'Unknown Device'),
-                    subtitle: Text('ID: ${device.id}\nRSSI: ${device.rssi}'),
-                    onTap: () => _connectToDevice(device),
+                    subtitle: Text(
+                      'ID: ${device.id}\nRSSI: ${device.rssi}',
+                    ),
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
+                      );
+                      _connectToDevice(device);
+                    },
                   );
                 },
               ),
