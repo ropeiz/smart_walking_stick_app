@@ -8,6 +8,9 @@ import 'package:stick_app/screens/bluetooth_screen.dart'; // Importa la nueva pa
 import 'package:stick_app/services/session_manager.dart'; // Importa el CognitoManager
 import 'package:stick_app/services/cognito_manager.dart'; // Importar User
 import 'package:latlong2/latlong.dart'; // Importar LatLng de latlong2
+import 'package:flutter_reactive_ble/flutter_reactive_ble.dart'; // Asegúrate de tener esta librería instalada
+import 'package:permission_handler/permission_handler.dart'; // Para manejar permisos
+import 'dart:typed_data';
 
 class CarrierScreen extends StatefulWidget {
   final User user;
@@ -28,8 +31,106 @@ class _CarrierScreenState extends State<CarrierScreen> {
   Timer? emergencyTimer;
   double progress = 0.0;
 
+  String connectionStatus = "Desconectado"; // Estado inicial
+
+  DiscoveredDevice? connectedDevice; // Dispositivo actualmente conectado
+  String _receivedData = ""; // Datos decodificados recibidos
+
   // Número de teléfono al que se llamará
   final String emergencyNumber = "+34648985584"; // Cambia esto al número deseado
+
+  // Variables Bluetooth
+  final FlutterReactiveBle _ble = FlutterReactiveBle();
+  final List<DiscoveredDevice> _devicesList = [];
+  bool _isScanning = false;
+  String _statusMessage = "";
+
+  StreamSubscription? _scanSubscription;
+
+void _scanForDevices(Function setStateModal) async {
+  await _requestPermissions();
+
+  if (!mounted) return; // Verifica si el widget sigue montado
+
+  setState(() {
+    _devicesList.clear();
+    _isScanning = true;
+    _statusMessage = "Buscando dispositivos BLE...";
+  });
+
+  // Inicia el escaneo
+  final scanStream = _ble.scanForDevices(withServices: []);
+  _scanSubscription = scanStream.listen((device) {
+    if (!mounted) return; // Verifica si el widget sigue montado
+
+    setState(() {
+      if (!_devicesList.any((d) => d.id == device.id)) {
+        _devicesList.add(device);
+      }
+    });
+
+    setStateModal(() {
+      // Actualiza la subventana con la lista de dispositivos
+    });
+  }, onError: (error) {
+    if (!mounted) return; // Verifica si el widget sigue montado
+
+    setState(() {
+      _statusMessage = "Error durante el escaneo: $error";
+      _isScanning = false;
+    });
+  });
+
+  // Detiene el escaneo después de 10 segundos
+  await Future.delayed(const Duration(seconds: 10));
+  await _scanSubscription?.cancel();
+
+  if (!mounted) return; // Verifica si el widget sigue montado
+
+  setState(() {
+    _isScanning = false;
+    if (_devicesList.isEmpty) {
+      _statusMessage = "No se encontraron dispositivos.";
+    } else {
+      _statusMessage = "Dispositivos encontrados:";
+    }
+  });
+}
+
+
+Future<void> _requestPermissions() async {
+  Map<Permission, PermissionStatus> statuses = await [
+    Permission.bluetoothScan,
+    Permission.bluetoothConnect,
+    Permission.locationWhenInUse,
+  ].request();
+
+  statuses.forEach((permission, status) {
+    print("$permission: $status");
+  });
+}
+
+// Detener el escaneo manualmente
+void _stopScanning() {
+  setState(() {
+    _isScanning = false;
+  });
+}
+
+  Future<void> _stopScan() async {
+  await _scanSubscription?.cancel();
+  if (mounted) {
+    setState(() {
+      _isScanning = false;
+      if (_devicesList.isEmpty) {
+        _statusMessage = "No se encontraron dispositivos.";
+      } else {
+        _statusMessage = "Dispositivos encontrados:";
+      }
+    });
+  }
+}
+
 
   // Generador de coordenadas aleatorias
   LatLng generateRandomCoordinate(LatLng center, double radius) {
@@ -114,6 +215,135 @@ class _CarrierScreenState extends State<CarrierScreen> {
       print("Exception occurred while sending emergency message: $e");
     }
   }
+
+  void _connectToDevice(DiscoveredDevice device) async {
+  try {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Conectando al dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
+    );
+
+    final connection = _ble.connectToDevice(
+      id: device.id,
+      servicesWithCharacteristicsToDiscover: {},
+    );
+
+    connection.listen(
+      (connectionState) {
+        if (connectionState.connectionState == DeviceConnectionState.connected) {
+          setState(() {
+            connectedDevice = device;
+            connectionStatus = "Conectado a ${device.name.isNotEmpty ? device.name : device.id}";
+          });
+
+          // Muestra un mensaje de éxito
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Conexión establecida con: ${device.name.isNotEmpty ? device.name : device.id}')),
+          );
+
+          Navigator.pop(context); // Cierra la subventana
+          _discoverAndReadCharacteristics(device.id); // Leer datos del dispositivo
+        }
+      },
+      onError: (error) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al conectar: $error')),
+        );
+      },
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: $e')),
+    );
+  }
+}
+
+
+void _discoverAndReadCharacteristics(String deviceId) async {
+  try {
+    final discoveredServices = await _ble.discoverServices(deviceId);
+    for (var service in discoveredServices) {
+      for (var characteristic in service.characteristics) {
+        final qualifiedCharacteristic = QualifiedCharacteristic(
+          deviceId: deviceId,
+          serviceId: service.serviceId,
+          characteristicId: characteristic.characteristicId,
+        );
+
+        if (characteristic.isNotifiable) {
+          _ble.subscribeToCharacteristic(qualifiedCharacteristic).listen(
+            (data) {
+              if (data.isNotEmpty) {
+                _decodeAndLogSensorData(Uint8List.fromList(data));
+              } else {
+                print('Datos insuficientes recibidos: $data');
+              }
+            },
+            onError: (error) {
+              print('Error al suscribirse: $error');
+            },
+          );
+        }
+      }
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error al descubrir servicios/características: $e')),
+    );
+  }
+}
+
+void _decodeAndLogSensorData(Uint8List data) {
+  final buffer = ByteData.sublistView(data);
+
+  // Identificar el paquete por su primer byte
+  final int identifier = buffer.getUint8(0);
+
+  switch (identifier) {
+    case 0x01: // Acelerómetro
+      final accelerometer = [
+        buffer.getFloat32(1, Endian.little),
+        buffer.getFloat32(5, Endian.little),
+        buffer.getFloat32(9, Endian.little),
+      ];
+      print('Acelerómetro: X=${accelerometer[0]}, Y=${accelerometer[1]}, Z=${accelerometer[2]}');
+      break;
+
+    case 0x02: // Giroscopio
+      final gyroscope = [
+        buffer.getFloat32(1, Endian.little),
+        buffer.getFloat32(5, Endian.little),
+        buffer.getFloat32(9, Endian.little),
+      ];
+      print('Giroscopio: X=${gyroscope[0]}, Y=${gyroscope[1]}, Z=${gyroscope[2]}');
+      break;
+
+    case 0x03: // Magnetómetro
+      final magnetometer = [
+        buffer.getFloat32(1, Endian.little),
+        buffer.getFloat32(5, Endian.little),
+        buffer.getFloat32(9, Endian.little),
+      ];
+      print('Magnetómetro: X=${magnetometer[0]}, Y=${magnetometer[1]}, Z=${magnetometer[2]}');
+      break;
+
+    case 0x04: // Presión
+      final pressure = [
+        buffer.getFloat32(1, Endian.little),
+        buffer.getFloat32(5, Endian.little),
+      ];
+      print('Presión: Sensor 1=${pressure[0]}, Sensor 2=${pressure[1]}');
+      break;
+
+    case 0x05: // Batería
+      final battery = buffer.getFloat32(1, Endian.little);
+      print('Batería: $battery%');
+      break;
+
+    default:
+      print('Identificador desconocido: $identifier. Datos sin procesar: $data');
+  }
+}
+
 
   // Función para enviar datos con coordenadas aleatorias
   void sendSensorData() async {
@@ -227,14 +457,75 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   }
 
+  void _openBluetoothModal() {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (BuildContext context, StateSetter setStateModal) {
+          return Container(
+            padding: const EdgeInsets.all(8.0),
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Column(
+              children: [
+                ElevatedButton(
+                  onPressed: _isScanning
+                      ? null // Desactiva el botón mientras escanea
+                      : () {
+                          setStateModal(() {
+                            _scanForDevices(setStateModal); // Llama al escaneo y actualiza la subventana
+                          });
+                        },
+                  child: const Text('Buscar Dispositivos Bluetooth'),
+                ),
+                const SizedBox(height: 10),
+                if (_isScanning) const CircularProgressIndicator(),
+                if (_statusMessage.isNotEmpty) Text(_statusMessage),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _devicesList.length,
+                    itemBuilder: (context, index) {
+                      final device = _devicesList[index];
+                      return ListTile(
+                        title: Text(device.name.isNotEmpty ? device.name : 'Dispositivo Desconocido'),
+                        subtitle: Text('ID: ${device.id}\nRSSI: ${device.rssi}'),
+                        onTap: () {
+                          setStateModal(() {
+                            _statusMessage = "Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}";
+                          });
+                          _connectToDevice(device);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  ).whenComplete(() {
+    _stopScanning(); // Detener el escaneo al cerrar la subventana
+  });
+}
+
   @override
-  void dispose() {
-    flashTimer?.cancel();
-    sosTimer?.cancel();
-    longPressTimer?.cancel();
-    emergencyTimer?.cancel(); // Limpia el temporizador de emergencia
-    super.dispose();
-  }
+void dispose() {
+  // Cancela los temporizadores
+  flashTimer?.cancel();
+  sosTimer?.cancel();
+  longPressTimer?.cancel();
+  emergencyTimer?.cancel();
+
+  // Cancela el Stream de escaneo de Bluetooth si está activo
+  _scanSubscription?.cancel();
+
+  // Llama a la implementación del método base
+  super.dispose();
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -246,9 +537,9 @@ class _CarrierScreenState extends State<CarrierScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'Cerrar sesión') {
-                _logout(); // Llamamos al método para cerrar sesión
+                _logout();
               } else if (value == 'Bluetooth') {
-                navigateToBluetoothScreen(); // Llama a la función para Bluetooth
+                _openBluetoothModal(); // Abrir la subventana
               }
             },
             itemBuilder: (BuildContext context) {
@@ -265,6 +556,13 @@ class _CarrierScreenState extends State<CarrierScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Estado de conexión Bluetooth
+              Text(
+                connectionStatus,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              
               ElevatedButton(
                 onPressed: () {
                   if (!isFlashing) {
@@ -337,4 +635,5 @@ class _CarrierScreenState extends State<CarrierScreen> {
       ),
     );
   }
+
 }
