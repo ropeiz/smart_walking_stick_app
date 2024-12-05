@@ -55,79 +55,48 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   StreamSubscription? _scanSubscription;
 
-void _scanForDevices(Function setStateModal) async {
-  await _requestPermissions();
+  bool isSosActive = false; // Indica si el SOS está activo
 
-  if (!mounted) return; // Verifica si el widget sigue montado
+  void _scanForDevices(Function setStateModal) async {
+    await _requestPermissions();
 
-  setState(() {
-    _devicesList.clear();
-    _isScanning = true;
-    _statusMessage = "Buscando dispositivos BLE...";
-  });
-
-  // Inicia el escaneo
-  final scanStream = _ble.scanForDevices(withServices: []);
-  _scanSubscription = scanStream.listen((device) {
     if (!mounted) return; // Verifica si el widget sigue montado
 
     setState(() {
-      if (!_devicesList.any((d) => d.id == device.id)) {
-        _devicesList.add(device);
-      }
+      _devicesList.clear();
+      _isScanning = true;
+      _statusMessage = "Buscando dispositivos BLE...";
     });
 
-    setStateModal(() {
-      // Actualiza la subventana con la lista de dispositivos
+    // Inicia el escaneo
+    final scanStream = _ble.scanForDevices(withServices: []);
+    _scanSubscription = scanStream.listen((device) {
+      if (!mounted) return; // Verifica si el widget sigue montado
+
+      setState(() {
+        if (!_devicesList.any((d) => d.id == device.id)) {
+          _devicesList.add(device);
+        }
+      });
+
+      setStateModal(() {
+        // Actualiza la subventana con la lista de dispositivos
+      });
+    }, onError: (error) {
+      if (!mounted) return; // Verifica si el widget sigue montado
+
+      setState(() {
+        _statusMessage = "Error durante el escaneo: $error";
+        _isScanning = false;
+      });
     });
-  }, onError: (error) {
+
+    // Detiene el escaneo después de 5 segundos
+    await Future.delayed(const Duration(seconds: 5));
+    await _scanSubscription?.cancel();
+
     if (!mounted) return; // Verifica si el widget sigue montado
 
-    setState(() {
-      _statusMessage = "Error durante el escaneo: $error";
-      _isScanning = false;
-    });
-  });
-
-  // Detiene el escaneo después de 10 segundos
-  await Future.delayed(const Duration(seconds: 5));
-  await _scanSubscription?.cancel();
-
-  if (!mounted) return; // Verifica si el widget sigue montado
-
-  setState(() {
-    _isScanning = false;
-    if (_devicesList.isEmpty) {
-      _statusMessage = "No se encontraron dispositivos.";
-    } else {
-      _statusMessage = "Dispositivos encontrados:";
-    }
-  });
-}
-
-
-Future<void> _requestPermissions() async {
-  Map<Permission, PermissionStatus> statuses = await [
-    Permission.bluetoothScan,
-    Permission.bluetoothConnect,
-    Permission.locationWhenInUse,
-  ].request();
-
-  statuses.forEach((permission, status) {
-    print("$permission: $status");
-  });
-}
-
-// Detener el escaneo manualmente
-void _stopScanning() {
-  setState(() {
-    _isScanning = false;
-  });
-}
-
-  Future<void> _stopScan() async {
-  await _scanSubscription?.cancel();
-  if (mounted) {
     setState(() {
       _isScanning = false;
       if (_devicesList.isEmpty) {
@@ -137,14 +106,45 @@ void _stopScanning() {
       }
     });
   }
-}
 
+  Future<void> _requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+    ].request();
+
+    statuses.forEach((permission, status) {
+      print("$permission: $status");
+    });
+  }
+
+  // Detener el escaneo manualmente
+  void _stopScanning() {
+    setState(() {
+      _isScanning = false;
+    });
+  }
+
+  Future<void> _stopScan() async {
+    await _scanSubscription?.cancel();
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+        if (_devicesList.isEmpty) {
+          _statusMessage = "No se encontraron dispositivos.";
+        } else {
+          _statusMessage = "Dispositivos encontrados:";
+        }
+      });
+    }
+  }
 
   // Generador de coordenadas aleatorias
   LatLng generateRandomCoordinate(LatLng center, double radius) {
     final random = Random();
-    final offsetLat = (random.nextDouble() - 0.5) * radius * 2; // Random latitude within the radius
-    final offsetLng = (random.nextDouble() - 0.5) * radius * 2; // Random longitude within the radius
+    final offsetLat = (random.nextDouble() - 0.5) * radius * 2;
+    final offsetLng = (random.nextDouble() - 0.5) * radius * 2;
 
     final newLat = center.latitude + offsetLat;
     final newLng = center.longitude + offsetLng;
@@ -157,20 +157,31 @@ void _stopScanning() {
     await SessionManager.clearUserSession();
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (context) => const StartScreen()), // Redirige a la pantalla de inicio
+      MaterialPageRoute(builder: (context) => const StartScreen()), 
       (route) => false, // Elimina todas las rutas anteriores
     );
   }
 
   void startFlashing() {
-    flashTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+    // Solo activar si no está activo ya
+    if (!isSosActive) {
       setState(() {
-        sosButtonColor = sosButtonColor == Colors.red ? Colors.white : Colors.red;
+        isFlashing = true;
+        showOkButton = true;
+        sosButtonColor = Colors.red;
+        isSosActive = true; // Marca el SOS como activo
       });
-    });
 
-    // Inicia el temporizador de emergencia para enviar datos después de 10 segundos
-    emergencyTimer = Timer(const Duration(seconds: 10), sendEmergencyMessage);
+      flashTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+        setState(() {
+          sosButtonColor = sosButtonColor == Colors.red ? Colors.white : Colors.red;
+        });
+      });
+
+      // Inicia el temporizador de emergencia para enviar datos después de 10 segundos
+      emergencyTimer = Timer(const Duration(seconds: 10), sendEmergencyMessage);
+      print("SOS activado");
+    }
   }
 
   // Enviar un mensaje de emergencia
@@ -178,7 +189,6 @@ void _stopScanning() {
     const String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/emergency";
 
     try {
-      // Obtener datos del usuario desde SessionManager
       final user = await SessionManager.getUserSession();
       if (user == null) {
         print("Error: Usuario no autenticado.");
@@ -187,26 +197,21 @@ void _stopScanning() {
 
       final jwtToken = user.jwtToken;
 
-      // Generamos coordenadas aleatorias alrededor del centro de Central Park
-      LatLng centralParkCenter = LatLng(40.785091, -73.968285); // Centro de Central Park
-      double radius = 0.001; // Radio para generar las coordenadas aleatorias
-
+      LatLng centralParkCenter = LatLng(40.785091, -73.968285);
+      double radius = 0.001;
       LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
 
-      // JSON payload
       final requestBody = {
         "stickCarrier": "John's Smart Cane",
         "email": "ropson2663@gmail.com",
         "gpsLocation": "${randomCoordinate.latitude}, ${randomCoordinate.longitude}",
       };
 
-      // Headers with Cognito JWT token
       final headers = {
         "Content-Type": "application/json",
         "Authorization": jwtToken,
       };
 
-      // POST request to API Gateway
       final response = await http.post(
         Uri.parse(apiUrl),
         headers: headers,
@@ -225,196 +230,227 @@ void _stopScanning() {
   }
 
   void _connectToDevice(DiscoveredDevice device) async {
-  try {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Conectando al dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
-    );
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Conectando al dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
+      );
 
-    final connection = _ble.connectToDevice(
-      id: device.id,
-      servicesWithCharacteristicsToDiscover: {},
-    );
+      final connection = _ble.connectToDevice(
+        id: device.id,
+        servicesWithCharacteristicsToDiscover: {},
+      );
 
-    connection.listen(
-      (connectionState) {
-        if (connectionState.connectionState == DeviceConnectionState.connected) {
-          setState(() {
-            connectedDevice = device;
-            connectionStatus = "Conectado a ${device.name.isNotEmpty ? device.name : device.id}";
-          });
+      connection.listen(
+        (connectionState) {
+          if (connectionState.connectionState == DeviceConnectionState.connected) {
+            setState(() {
+              connectedDevice = device;
+              connectionStatus = "Conectado a ${device.name.isNotEmpty ? device.name : device.id}";
+            });
 
-          // Muestra un mensaje de éxito
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Conexión establecida con: ${device.name.isNotEmpty ? device.name : device.id}')),
+            );
+
+            Navigator.pop(context); // Cierra la subventana
+            _discoverAndReadCharacteristics(device.id); // Leer datos del dispositivo
+          }
+        },
+        onError: (error) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Conexión establecida con: ${device.name.isNotEmpty ? device.name : device.id}')),
+            SnackBar(content: Text('Error al conectar: $error')),
           );
-
-          Navigator.pop(context); // Cierra la subventana
-          _discoverAndReadCharacteristics(device.id); // Leer datos del dispositivo
-        }
-      },
-      onError: (error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al conectar: $error')),
-        );
-      },
-    );
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error: $e')),
-    );
+        },
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
   }
-}
 
-
-void _discoverAndReadCharacteristics(String deviceId) async {
-  try {
-    final discoveredServices = await _ble.discoverServices(deviceId);
-    for (var service in discoveredServices) {
-      for (var characteristic in service.characteristics) {
-        final qualifiedCharacteristic = QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: service.serviceId,
-          characteristicId: characteristic.characteristicId,
-        );
-
-        if (characteristic.isNotifiable) {
-          _ble.subscribeToCharacteristic(qualifiedCharacteristic).listen(
-            (data) {
-              if (data.isNotEmpty) {
-                _decodeAndLogSensorData(Uint8List.fromList(data));
-              } else {
-                print('Datos insuficientes recibidos: $data');
-              }
-            },
-            onError: (error) {
-              print('Error al suscribirse: $error');
-            },
+  void _discoverAndReadCharacteristics(String deviceId) async {
+    try {
+      final discoveredServices = await _ble.discoverServices(deviceId);
+      for (var service in discoveredServices) {
+        for (var characteristic in service.characteristics) {
+          final qualifiedCharacteristic = QualifiedCharacteristic(
+            deviceId: deviceId,
+            serviceId: service.serviceId,
+            characteristicId: characteristic.characteristicId,
           );
+
+          if (characteristic.isNotifiable) {
+            _ble.subscribeToCharacteristic(qualifiedCharacteristic).listen(
+              (data) {
+                if (data.isNotEmpty) {
+                  _decodeAndLogSensorData(Uint8List.fromList(data));
+                } else {
+                  print('Datos insuficientes recibidos: $data');
+                }
+              },
+              onError: (error) {
+                print('Error al suscribirse: $error');
+              },
+            );
+          }
         }
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al descubrir servicios/características: $e')),
+      );
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error al descubrir servicios/características: $e')),
-    );
   }
-}
 
-void _decodeAndLogSensorData(Uint8List data) {
-  final buffer = ByteData.sublistView(data);
-  final int identifier = buffer.getUint8(0);
+  void _decodeAndLogSensorData(Uint8List data) {
+    final buffer = ByteData.sublistView(data);
+    final int identifier = buffer.getUint8(0);
 
-  setState(() {
-    switch (identifier) {
-      case 0x01: // Acelerómetro
-        sensorData["accelerometer"] = {
-          "x": buffer.getFloat32(1, Endian.little).toString(),
-          "y": buffer.getFloat32(5, Endian.little).toString(),
-          "z": buffer.getFloat32(9, Endian.little).toString()
-        };
-        break;
+    setState(() {
+      int? modeValue; // Variable para almacenar el modo
 
-      case 0x02: // Giroscopio
-        sensorData["gyroscope"] = {
-          "x": buffer.getFloat32(1, Endian.little).toString(),
-          "y": buffer.getFloat32(5, Endian.little).toString(),
-          "z": buffer.getFloat32(9, Endian.little).toString()
-        };
-        break;
+      switch (identifier) {
+        case 0x01: // Acelerómetro (14 bytes totales)
+          if (data.length >= 14) {
+            sensorData["accelerometer"] = {
+              "x": buffer.getFloat32(1, Endian.little).toString(),
+              "y": buffer.getFloat32(5, Endian.little).toString(),
+              "z": buffer.getFloat32(9, Endian.little).toString()
+            };
+            modeValue = buffer.getUint8(13);
+          } else {
+            print('Datos insuficientes para acelerómetro');
+          }
+          break;
 
-      case 0x03: // Magnetómetro
-        sensorData["magnetometer"] = {
-          "x": buffer.getFloat32(1, Endian.little).toString(),
-          "y": buffer.getFloat32(5, Endian.little).toString(),
-          "z": buffer.getFloat32(9, Endian.little).toString()
-        };
-        break;
+        case 0x02: // Giroscopio (14 bytes totales)
+          if (data.length >= 14) {
+            sensorData["gyroscope"] = {
+              "x": buffer.getFloat32(1, Endian.little).toString(),
+              "y": buffer.getFloat32(5, Endian.little).toString(),
+              "z": buffer.getFloat32(9, Endian.little).toString()
+            };
+            modeValue = buffer.getUint8(13);
+          } else {
+            print('Datos insuficientes para giroscopio');
+          }
+          break;
 
-      case 0x04: // Presión
-        sensorData["pressure"] = {
-          "sensor_1": buffer.getFloat32(1, Endian.little).toString(),
-          "sensor_2": buffer.getFloat32(5, Endian.little).toString()
-        };
-        break;
+        case 0x03: // Magnetómetro (14 bytes totales)
+          if (data.length >= 14) {
+            sensorData["magnetometer"] = {
+              "x": buffer.getFloat32(1, Endian.little).toString(),
+              "y": buffer.getFloat32(5, Endian.little).toString(),
+              "z": buffer.getFloat32(9, Endian.little).toString()
+            };
+            modeValue = buffer.getUint8(13);
+          } else {
+            print('Datos insuficientes para magnetómetro');
+          }
+          break;
 
-      case 0x05: // Batería
-        sensorData["battery"] = buffer.getFloat32(1, Endian.little).toString();
-        break;
+        case 0x04: // Presión (10 bytes totales)
+          if (data.length >= 10) {
+            sensorData["pressure"] = {
+              "sensor_1": buffer.getFloat32(1, Endian.little).toString(),
+              "sensor_2": buffer.getFloat32(5, Endian.little).toString()
+            };
+            modeValue = buffer.getUint8(9);
+          } else {
+            print('Datos insuficientes para presión');
+          }
+          break;
 
-      default:
-        print('Identificador desconocido: $identifier. Datos sin procesar: $data');
-    }
+        case 0x05: // Batería (6 bytes totales)
+          if (data.length >= 6) {
+            sensorData["battery"] = buffer.getFloat32(1, Endian.little).toString();
+            modeValue = buffer.getUint8(5);
+          } else {
+            print('Datos insuficientes para batería');
+          }
+          break;
 
-    // Generar coordenadas GPS simuladas
-    LatLng centralParkCenter = LatLng(40.785091, -73.968285);
-    double radius = 0.001;
-    LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
+        default:
+          print('Identificador desconocido: $identifier. Datos sin procesar: $data');
+      }
 
-    // Crear el JSON completo
-    lastGeneratedJson = {
-      "stick_code": "ABC123",
-      "GPS_device": {
-        "latitude": randomCoordinate.latitude.toString(),
-        "longitude": randomCoordinate.longitude.toString(),
-        "altitude": "15.3"
-      },
-      "IMU": {
-        "accelerometer": sensorData["accelerometer"],
-        "gyroscope": sensorData["gyroscope"],
-        "magnetometer": sensorData["magnetometer"]
-      },
-      "pressure": sensorData["pressure"],
-      "battery": sensorData["battery"],
-      "user": "ropson2663"
-    };
+      if (modeValue != null) {
+        print("Modo actual (solo log): $modeValue");
+        // Si el modo es 4 y el SOS no está activo, inicia el SOS
+        if (modeValue == 4 && !isSosActive) {
+          print("Modo 4 detectado, iniciando SOS...");
+          startFlashing(); // Activa la funcionalidad SOS (dentro se marca isSosActive y se muestra OK)
+        }
+      }
 
-    // Imprimir el JSON generado
-    print("json generado: ${jsonEncode(lastGeneratedJson)}");
-  });
-}
+      // Generar coordenadas GPS simuladas
+      LatLng centralParkCenter = LatLng(40.785091, -73.968285);
+      double radius = 0.001;
+      LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
+
+      // Crear el JSON completo (sin incluir el modo)
+      lastGeneratedJson = {
+        "stick_code": "ABC123",
+        "GPS_device": {
+          "latitude": randomCoordinate.latitude.toString(),
+          "longitude": randomCoordinate.longitude.toString(),
+          "altitude": "15.3"
+        },
+        "IMU": {
+          "accelerometer": sensorData["accelerometer"],
+          "gyroscope": sensorData["gyroscope"],
+          "magnetometer": sensorData["magnetometer"]
+        },
+        "pressure": sensorData["pressure"],
+        "battery": sensorData["battery"],
+        "user": "ropson2663"
+      };
+
+      print("json generado: ${jsonEncode(lastGeneratedJson)}");
+      sendSensorData();
+    });
+  }
 
   // Función para enviar datos con coordenadas aleatorias
   void sendSensorData() async {
-  if (lastGeneratedJson == null) {
-    print("No hay datos disponibles para enviar.");
-    return;
-  }
-
-  const String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
-
-  try {
-    final user = await SessionManager.getUserSession();
-    if (user == null) {
-      print("Error: Usuario no autenticado.");
+    if (lastGeneratedJson == null) {
+      print("No hay datos disponibles para enviar.");
       return;
     }
 
-    final jwtToken = user.jwtToken;
+    const String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
 
-    // Configurar los headers
-    final headers = {
-      "Content-Type": "application/json",
-      "Authorization": jwtToken,
-    };
+    try {
+      final user = await SessionManager.getUserSession();
+      if (user == null) {
+        print("Error: Usuario no autenticado.");
+        return;
+      }
 
-    // Enviar la petición POST con el último JSON generado
-    final response = await http.post(
-      Uri.parse(apiUrl),
-      headers: headers,
-      body: jsonEncode(lastGeneratedJson),
-    );
+      final jwtToken = user.jwtToken;
 
-    // Manejar la respuesta
-    if (response.statusCode == 200) {
-      print("Data sent successfully: ${response.body}");
-    } else {
-      print("Error sending data: ${response.statusCode}");
-      print("Response body: ${response.body}");
+      final headers = {
+        "Content-Type": "application/json",
+        "Authorization": jwtToken,
+      };
+
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: headers,
+        body: jsonEncode(lastGeneratedJson),
+      );
+
+      if (response.statusCode == 200) {
+        print("Data sent successfully: ${response.body}");
+      } else {
+        print("Error sending data: ${response.statusCode}");
+        print("Response body: ${response.body}");
+      }
+    } catch (e) {
+      print("Exception occurred: $e");
     }
-  } catch (e) {
-    print("Exception occurred: $e");
   }
-}
 
   void stopFlashing() {
     flashTimer?.cancel();
@@ -425,6 +461,7 @@ void _decodeAndLogSensorData(Uint8List data) {
       showOkButton = false;
       isFlashing = false;
       progress = 0.0;
+      isSosActive = false; // Marca el SOS como inactivo
     });
   }
 
@@ -453,74 +490,72 @@ void _decodeAndLogSensorData(Uint8List data) {
   }
 
   void _openBluetoothModal() {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    builder: (context) {
-      return StatefulBuilder(
-        builder: (BuildContext context, StateSetter setStateModal) {
-          return Container(
-            padding: const EdgeInsets.all(8.0),
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Column(
-              children: [
-                ElevatedButton(
-                  onPressed: _isScanning
-                      ? null // Desactiva el botón mientras escanea
-                      : () {
-                          setStateModal(() {
-                            _scanForDevices(setStateModal); // Llama al escaneo y actualiza la subventana
-                          });
-                        },
-                  child: const Text('Buscar Dispositivos Bluetooth'),
-                ),
-                const SizedBox(height: 10),
-                if (_isScanning) const CircularProgressIndicator(),
-                if (_statusMessage.isNotEmpty) Text(_statusMessage),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _devicesList.length,
-                    itemBuilder: (context, index) {
-                      final device = _devicesList[index];
-                      return ListTile(
-                        title: Text(device.name.isNotEmpty ? device.name : 'Dispositivo Desconocido'),
-                        subtitle: Text('ID: ${device.id}\nRSSI: ${device.rssi}'),
-                        onTap: () {
-                          setStateModal(() {
-                            _statusMessage = "Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}";
-                          });
-                          _connectToDevice(device);
-                        },
-                      );
-                    },
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setStateModal) {
+            return Container(
+              padding: const EdgeInsets.all(8.0),
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: Column(
+                children: [
+                  ElevatedButton(
+                    onPressed: _isScanning
+                        ? null // Desactiva el botón mientras escanea
+                        : () {
+                            setStateModal(() {
+                              _scanForDevices(setStateModal); // Llama al escaneo y actualiza la subventana
+                            });
+                          },
+                    child: const Text('Buscar Dispositivos Bluetooth'),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    },
-  ).whenComplete(() {
-    _stopScanning(); // Detener el escaneo al cerrar la subventana
-  });
-}
+                  const SizedBox(height: 10),
+                  if (_isScanning) const CircularProgressIndicator(),
+                  if (_statusMessage.isNotEmpty) Text(_statusMessage),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: _devicesList.length,
+                      itemBuilder: (context, index) {
+                        final device = _devicesList[index];
+                        return ListTile(
+                          title: Text(device.name.isNotEmpty ? device.name : 'Dispositivo Desconocido'),
+                          subtitle: Text('ID: ${device.id}\nRSSI: ${device.rssi}'),
+                          onTap: () {
+                            setStateModal(() {
+                              _statusMessage = "Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}";
+                            });
+                            _connectToDevice(device);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      _stopScanning(); // Detener el escaneo al cerrar la subventana
+    });
+  }
 
   @override
-void dispose() {
-  // Cancela los temporizadores
-  flashTimer?.cancel();
-  sosTimer?.cancel();
-  longPressTimer?.cancel();
-  emergencyTimer?.cancel();
+  void dispose() {
+    // Cancela los temporizadores
+    flashTimer?.cancel();
+    sosTimer?.cancel();
+    longPressTimer?.cancel();
+    emergencyTimer?.cancel();
 
-  // Cancela el Stream de escaneo de Bluetooth si está activo
-  _scanSubscription?.cancel();
+    // Cancela el Stream de escaneo de Bluetooth si está activo
+    _scanSubscription?.cancel();
 
-  // Llama a la implementación del método base
-  super.dispose();
-}
-
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -561,10 +596,8 @@ void dispose() {
               ElevatedButton(
                 onPressed: () {
                   if (!isFlashing) {
-                    setState(() {
-                      isFlashing = true;
-                      showOkButton = true;
-                    });
+                    // Ahora simplemente llamamos a startFlashing()
+                    // sin modificar isFlashing ni showOkButton aquí.
                     startFlashing();
                   }
                 },
@@ -607,8 +640,8 @@ void dispose() {
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: Container(
-                            height: 70, // Altura de la barra
-                            width: 150 * progress, // Ancho proporcional al progreso
+                            height: 70, 
+                            width: 150 * progress, 
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.3),
                               borderRadius: BorderRadius.circular(12),
@@ -630,5 +663,4 @@ void dispose() {
       ),
     );
   }
-
 }
