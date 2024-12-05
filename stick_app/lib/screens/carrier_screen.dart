@@ -4,7 +4,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:stick_app/screens/start_screen.dart';
-import 'package:stick_app/screens/bluetooth_screen.dart'; // Importa la nueva pantalla
 import 'package:stick_app/services/session_manager.dart'; // Importa el CognitoManager
 import 'package:stick_app/services/cognito_manager.dart'; // Importar User
 import 'package:latlong2/latlong.dart'; // Importar LatLng de latlong2
@@ -31,10 +30,19 @@ class _CarrierScreenState extends State<CarrierScreen> {
   Timer? emergencyTimer;
   double progress = 0.0;
 
+  Map<String, dynamic> sensorData = {
+    "accelerometer": {"x": "0.0", "y": "0.0", "z": "0.0"},
+    "gyroscope": {"x": "0.0", "y": "0.0", "z": "0.0"},
+    "magnetometer": {"x": "0.0", "y": "0.0", "z": "0.0"},
+    "pressure": {"sensor_1": "0", "sensor_2": "0"},
+    "battery": "0"
+  };
+
+  Map<String, dynamic>? lastGeneratedJson;
+
   String connectionStatus = "Desconectado"; // Estado inicial
 
   DiscoveredDevice? connectedDevice; // Dispositivo actualmente conectado
-  String _receivedData = ""; // Datos decodificados recibidos
 
   // Número de teléfono al que se llamará
   final String emergencyNumber = "+34648985584"; // Cambia esto al número deseado
@@ -82,7 +90,7 @@ void _scanForDevices(Function setStateModal) async {
   });
 
   // Detiene el escaneo después de 10 segundos
-  await Future.delayed(const Duration(seconds: 10));
+  await Future.delayed(const Duration(seconds: 5));
   await _scanSubscription?.cancel();
 
   if (!mounted) return; // Verifica si el widget sigue montado
@@ -294,120 +302,119 @@ void _discoverAndReadCharacteristics(String deviceId) async {
 
 void _decodeAndLogSensorData(Uint8List data) {
   final buffer = ByteData.sublistView(data);
-
-  // Identificar el paquete por su primer byte
   final int identifier = buffer.getUint8(0);
 
-  switch (identifier) {
-    case 0x01: // Acelerómetro
-      final accelerometer = [
-        buffer.getFloat32(1, Endian.little),
-        buffer.getFloat32(5, Endian.little),
-        buffer.getFloat32(9, Endian.little),
-      ];
-      print('Acelerómetro: X=${accelerometer[0]}, Y=${accelerometer[1]}, Z=${accelerometer[2]}');
-      break;
+  setState(() {
+    switch (identifier) {
+      case 0x01: // Acelerómetro
+        sensorData["accelerometer"] = {
+          "x": buffer.getFloat32(1, Endian.little).toString(),
+          "y": buffer.getFloat32(5, Endian.little).toString(),
+          "z": buffer.getFloat32(9, Endian.little).toString()
+        };
+        break;
 
-    case 0x02: // Giroscopio
-      final gyroscope = [
-        buffer.getFloat32(1, Endian.little),
-        buffer.getFloat32(5, Endian.little),
-        buffer.getFloat32(9, Endian.little),
-      ];
-      print('Giroscopio: X=${gyroscope[0]}, Y=${gyroscope[1]}, Z=${gyroscope[2]}');
-      break;
+      case 0x02: // Giroscopio
+        sensorData["gyroscope"] = {
+          "x": buffer.getFloat32(1, Endian.little).toString(),
+          "y": buffer.getFloat32(5, Endian.little).toString(),
+          "z": buffer.getFloat32(9, Endian.little).toString()
+        };
+        break;
 
-    case 0x03: // Magnetómetro
-      final magnetometer = [
-        buffer.getFloat32(1, Endian.little),
-        buffer.getFloat32(5, Endian.little),
-        buffer.getFloat32(9, Endian.little),
-      ];
-      print('Magnetómetro: X=${magnetometer[0]}, Y=${magnetometer[1]}, Z=${magnetometer[2]}');
-      break;
+      case 0x03: // Magnetómetro
+        sensorData["magnetometer"] = {
+          "x": buffer.getFloat32(1, Endian.little).toString(),
+          "y": buffer.getFloat32(5, Endian.little).toString(),
+          "z": buffer.getFloat32(9, Endian.little).toString()
+        };
+        break;
 
-    case 0x04: // Presión
-      final pressure = [
-        buffer.getFloat32(1, Endian.little),
-        buffer.getFloat32(5, Endian.little),
-      ];
-      print('Presión: Sensor 1=${pressure[0]}, Sensor 2=${pressure[1]}');
-      break;
+      case 0x04: // Presión
+        sensorData["pressure"] = {
+          "sensor_1": buffer.getFloat32(1, Endian.little).toString(),
+          "sensor_2": buffer.getFloat32(5, Endian.little).toString()
+        };
+        break;
 
-    case 0x05: // Batería
-      final battery = buffer.getFloat32(1, Endian.little);
-      print('Batería: $battery%');
-      break;
+      case 0x05: // Batería
+        sensorData["battery"] = buffer.getFloat32(1, Endian.little).toString();
+        break;
 
-    default:
-      print('Identificador desconocido: $identifier. Datos sin procesar: $data');
-  }
+      default:
+        print('Identificador desconocido: $identifier. Datos sin procesar: $data');
+    }
+
+    // Generar coordenadas GPS simuladas
+    LatLng centralParkCenter = LatLng(40.785091, -73.968285);
+    double radius = 0.001;
+    LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
+
+    // Crear el JSON completo
+    lastGeneratedJson = {
+      "stick_code": "ABC123",
+      "GPS_device": {
+        "latitude": randomCoordinate.latitude.toString(),
+        "longitude": randomCoordinate.longitude.toString(),
+        "altitude": "15.3"
+      },
+      "IMU": {
+        "accelerometer": sensorData["accelerometer"],
+        "gyroscope": sensorData["gyroscope"],
+        "magnetometer": sensorData["magnetometer"]
+      },
+      "pressure": sensorData["pressure"],
+      "battery": sensorData["battery"],
+      "user": "ropson2663"
+    };
+
+    // Imprimir el JSON generado
+    print("json generado: ${jsonEncode(lastGeneratedJson)}");
+  });
 }
-
 
   // Función para enviar datos con coordenadas aleatorias
   void sendSensorData() async {
-    final String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
-
-    try {
-      final user = await SessionManager.getUserSession();
-      if (user == null) {
-        print("Error: Usuario no autenticado.");
-        return;
-      }
-
-      final jwtToken = user.jwtToken;
-      final username = user.username;
-      final stickCode = user.stickCode;
-
-      print('JWT Token: $jwtToken');
-
-      LatLng centralParkCenter = LatLng(40.785091, -73.968285); // Centro de Central Park
-      double radius = 0.001; // Radio para generar las coordenadas aleatorias
-
-      LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
-
-      final requestBody = {
-        "stick_code": stickCode,
-        "GPS_device": {
-          "latitude": randomCoordinate.latitude.toString(),
-          "longitude": randomCoordinate.longitude.toString(),
-          "altitude": "15.3",
-        },
-        "IMU": {
-          "accelerometer": {"x": "0.02", "y": "-0.98", "z": "9.81"},
-          "gyroscope": {"x": "0.01", "y": "0.02", "z": "0.00"},
-          "magnetometer": {"x": "30.1", "y": "-15.4", "z": "42.8"},
-        },
-        "pressure": {
-          "sensor_1": "20",
-          "sensor_2": "22",
-        },
-        "battery": "85",
-        "user": username,
-      };
-
-      final headers = {
-        "Content-Type": "application/json",
-        "Authorization": jwtToken,
-      };
-
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: headers,
-        body: jsonEncode(requestBody),
-      );
-
-      if (response.statusCode == 200) {
-        print("Data sent successfully: ${response.body}");
-      } else {
-        print("Error sending data: ${response.statusCode}");
-        print("Response body: ${response.body}");
-      }
-    } catch (e) {
-      print("Exception occurred: $e");
-    }
+  if (lastGeneratedJson == null) {
+    print("No hay datos disponibles para enviar.");
+    return;
   }
+
+  const String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
+
+  try {
+    final user = await SessionManager.getUserSession();
+    if (user == null) {
+      print("Error: Usuario no autenticado.");
+      return;
+    }
+
+    final jwtToken = user.jwtToken;
+
+    // Configurar los headers
+    final headers = {
+      "Content-Type": "application/json",
+      "Authorization": jwtToken,
+    };
+
+    // Enviar la petición POST con el último JSON generado
+    final response = await http.post(
+      Uri.parse(apiUrl),
+      headers: headers,
+      body: jsonEncode(lastGeneratedJson),
+    );
+
+    // Manejar la respuesta
+    if (response.statusCode == 200) {
+      print("Data sent successfully: ${response.body}");
+    } else {
+      print("Error sending data: ${response.statusCode}");
+      print("Response body: ${response.body}");
+    }
+  } catch (e) {
+    print("Exception occurred: $e");
+  }
+}
 
   void stopFlashing() {
     flashTimer?.cancel();
@@ -443,18 +450,6 @@ void _decodeAndLogSensorData(Uint8List data) {
     setState(() {
       progress = 0.0; // Restablece el progreso si se cancela la pulsación larga
     });
-  }
-
-  // Navegar a la pantalla de Bluetooth y pasar el usuario
-  void navigateToBluetoothScreen() {
-    Navigator.push(
-  context,
-  MaterialPageRoute(
-    //builder: (context) => BluetoothScreen(user: widget.user),
-    builder: (context) => BluetoothScreen(),
-  ),
-);
-
   }
 
   void _openBluetoothModal() {
