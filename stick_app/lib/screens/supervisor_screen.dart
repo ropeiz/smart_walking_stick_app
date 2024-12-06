@@ -4,8 +4,8 @@ import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'start_screen.dart';
-import 'package:stick_app/services/session_manager.dart'; // Importa el CognitoManager
-import 'package:stick_app/services/cognito_manager.dart'; // Importar User
+import 'package:stick_app/services/session_manager.dart'; 
+import 'package:stick_app/services/cognito_manager.dart'; 
 
 class SupervisorScreen extends StatefulWidget {
   final User user;
@@ -19,16 +19,16 @@ class SupervisorScreen extends StatefulWidget {
 class _SupervisorScreenState extends State<SupervisorScreen> {
   final String apiUrl =
       "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
-  LatLng? sensorLocation;
   String lastUpdate = 'No data received';
 
-  // Marcadores para el mapa
-  final List<Marker> _markers = [];
+  // Lista de puntos para la ruta
+  List<LatLng> _routePoints = [];
 
-  // Función para obtener datos del sensor
+  // Marcadores para el mapa
+  List<Marker> _markers = [];
+
   Future<void> getSensorData() async {
     try {
-      // Obtener el JWT token del usuario autenticado
       final user = await SessionManager.getUserSession();
       if (user == null) {
         print("Error: Usuario no autenticado.");
@@ -37,40 +37,69 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
 
       final jwtToken = user.jwtToken;
       final stickCode = user.stickCode;
+      final date = "2024-12-05"; 
 
-      // Parámetros de la solicitud (deberías pasar el stickCode y la fecha)
-      final date = "2024-11-27"; // Reemplaza con la fecha correcta en formato YYYY-MM-DD
-
-      // Hacer la solicitud POST para obtener los datos GPS
       final gpsData = await fetchGPSData(stickCode!, date, jwtToken);
 
-      // Verificar si se recibieron datos GPS
       if (gpsData.isNotEmpty) {
-        final latitude = double.tryParse(gpsData[0]['latitude']);
-        final longitude = double.tryParse(gpsData[0]['longitude']);
+        setState(() {
+          lastUpdate = "Última actualización: ${DateTime.now()}";
 
-        // Verificar que las coordenadas sean válidas
-        if (latitude != null && longitude != null) {
-          setState(() {
-            sensorLocation = LatLng(latitude, longitude);
-            lastUpdate = "Última actualización: ${DateTime.now()}";
+          _markers.clear();
+          _routePoints.clear();
 
-            // Actualizar el marcador en la nueva ubicación
-            _markers.clear();
+          List<LatLng> allPoints = [];
+          for (var data in gpsData) {
+            final latitude = double.tryParse(data['latitude']);
+            final longitude = double.tryParse(data['longitude']);
+            if (latitude != null && longitude != null) {
+              allPoints.add(LatLng(latitude, longitude));
+            }
+          }
+
+          List<LatLng> filteredPoints = [];
+          for (int i = 0; i < allPoints.length; i += 60) {
+            filteredPoints.add(allPoints[i]);
+          }
+
+          if (filteredPoints.isEmpty && allPoints.isNotEmpty) {
+            filteredPoints = allPoints;
+          }
+
+          _routePoints = filteredPoints;
+
+          if (_routePoints.isNotEmpty) {
+            // Marcador inicial (verde)
             _markers.add(
               Marker(
-                point: sensorLocation!,
+                point: _routePoints.first,
+                width: 40,
+                height: 40,
                 child: const Icon(
                   Icons.location_on,
-                  color: Colors.red,
+                  color: Colors.green,
                   size: 40,
                 ),
               ),
             );
-          });
-        } else {
-          print("Error: Coordenadas no válidas en los datos recibidos.");
-        }
+
+            // Marcador final (rojo), si hay más de un punto
+            if (_routePoints.length > 1) {
+              _markers.add(
+                Marker(
+                  point: _routePoints.last,
+                  width: 40,
+                  height: 40,
+                  child: const Icon(
+                    Icons.location_on,
+                    color: Colors.red,
+                    size: 40,
+                  ),
+                ),
+              );
+            }
+          }
+        });
       } else {
         print("No se recibieron datos GPS.");
       }
@@ -79,26 +108,22 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
     }
   }
 
-  // Función que obtiene los datos GPS a través de la API
   Future<List<Map<String, dynamic>>> fetchGPSData(
       String stickCode, String date, String jwtToken) async {
     final String apiUrl =
         "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/GPS";
 
     try {
-      // Cuerpo de la solicitud
       final requestBody = {
-        "stick_code": stickCode,
-        "date": date, // Formato: YYYY-MM-DD
+        "stick_code": "ABC123",
+        "date": date,
       };
 
-      // Cabeceras con el JWT Token
       final headers = {
         "Content-Type": "application/json",
         "Authorization": jwtToken,
       };
 
-      // Realizar la solicitud POST
       final response = await http.post(
         Uri.parse(apiUrl),
         headers: headers,
@@ -107,15 +132,13 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
 
       print(response.body);
 
-      // Analizar la respuesta
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
 
         if (responseData.containsKey('body')) {
           final bodyData = jsonDecode(responseData['body']);
 
-          if (bodyData.containsKey('gps_data') &&
-              bodyData['gps_data'] != null) {
+          if (bodyData.containsKey('gps_data') && bodyData['gps_data'] != null) {
             final gpsData =
                 List<Map<String, dynamic>>.from(bodyData['gps_data']);
             return gpsData;
@@ -153,7 +176,7 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                   (route) => false,
                 );
               } else if (value == 'Logs') {
-                // Aquí podrías agregar lógica para mostrar logs si es necesario
+                // show logs if needed
               }
             },
             itemBuilder: (BuildContext context) {
@@ -170,15 +193,27 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
           Expanded(
             child: FlutterMap(
               options: MapOptions(
-                // Cambié 'center' por 'initialCenter' en la nueva versión de flutter_map
-                initialCenter: sensorLocation ?? LatLng(0, 0), // Centrar el mapa
-                initialZoom: 15, // Nivel de zoom
+                initialCenter: _routePoints.isNotEmpty
+                    ? _routePoints.first
+                    : LatLng(0, 0),
+                initialZoom: 15,
               ),
               children: [
                 TileLayer(
-                  urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  urlTemplate:
+                      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
                   subdomains: ['a', 'b', 'c'],
                 ),
+                if (_routePoints.length > 1)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: _routePoints,
+                        strokeWidth: 4.0,
+                        color: Colors.blue,
+                      ),
+                    ],
+                  ),
                 MarkerLayer(
                   markers: _markers,
                 ),

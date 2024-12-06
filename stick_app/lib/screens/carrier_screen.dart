@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart'; // Importar LatLng de latlong2
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart'; // Asegúrate de tener esta librería instalada
 import 'package:permission_handler/permission_handler.dart'; // Para manejar permisos
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle; 
 
 class CarrierScreen extends StatefulWidget {
   final User user;
@@ -41,7 +42,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
   Map<String, dynamic>? lastGeneratedJson;
 
   String connectionStatus = "Desconectado"; // Estado inicial
-
   DiscoveredDevice? connectedDevice; // Dispositivo actualmente conectado
 
   final String emergencyNumber = "+34648985584"; // Número al que se llamará
@@ -53,10 +53,62 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   StreamSubscription? _scanSubscription;
 
-  bool isSosActive = false; 
-
+  bool isSosActive = false;
   bool hasFallen = false;
   List<Map<String, double>> pressureHistory = []; // Historial de presión reducido
+
+  // Predefined path of coordinates. Replace these with your actual path coordinates.
+  List<LatLng> _predefinedPath = [];
+  int _currentPathIndex = 0;
+
+  Future<void> _loadCoordinates() async {
+    try {
+      final String jsonString = await rootBundle.loadString('assets/coordinates.json');
+      final List<dynamic> jsonData = jsonDecode(jsonString);
+
+      // Parse the JSON into a list of LatLng objects
+      _predefinedPath = jsonData.map((item) {
+        final lat = item['latitude'] as double;
+        final lng = item['longitude'] as double;
+        return LatLng(lat, lng);
+      }).toList();
+
+      setState(() {}); // Update the UI if needed
+    } catch (e) {
+      print("Error loading coordinates: $e");
+      _predefinedPath = [];
+    }
+  }
+
+  LatLng getNextPathCoordinate() {
+    if (_predefinedPath.isEmpty) {
+      // Fallback if no path is defined
+      return LatLng(40.785091, -73.968285);
+    }
+
+    final coord = _predefinedPath[_currentPathIndex];
+
+    // Move to the next coordinate for next time
+    _currentPathIndex++;
+    if (_currentPathIndex >= _predefinedPath.length) {
+      // If you want to loop back to the start, uncomment the next line
+      _currentPathIndex = 0;
+
+      // If not looping, just remain on the last coordinate:
+      //_currentPathIndex = _predefinedPath.length - 1;
+    }
+
+    return coord;
+  }
+
+  Future<void> _logout() async {
+    await SessionManager.clearUserSession();
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const StartScreen()),
+      (route) => false,
+    );
+  }
 
   void _scanForDevices(Function setStateModal) async {
     await _requestPermissions();
@@ -138,33 +190,13 @@ class _CarrierScreenState extends State<CarrierScreen> {
     }
   }
 
-  LatLng generateRandomCoordinate(LatLng center, double radius) {
-    final random = Random();
-    final offsetLat = (random.nextDouble() - 0.5) * radius * 2;
-    final offsetLng = (random.nextDouble() - 0.5) * radius * 2;
-
-    final newLat = center.latitude + offsetLat;
-    final newLng = center.longitude + offsetLng;
-
-    return LatLng(newLat, newLng);
-  }
-
-  Future<void> _logout() async {
-    await SessionManager.clearUserSession();
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const StartScreen()), 
-      (route) => false, 
-    );
-  }
-
   void startFlashing() {
     if (!isSosActive) {
       setState(() {
         isFlashing = true;
         showOkButton = true;
         sosButtonColor = Colors.red;
-        isSosActive = true; 
+        isSosActive = true;
       });
 
       flashTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
@@ -190,14 +222,13 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
       final jwtToken = user.jwtToken;
 
-      LatLng centralParkCenter = LatLng(40.785091, -73.968285);
-      double radius = 0.001;
-      LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
+      // Use the next coordinate in the predefined path instead of random:
+      LatLng nextCoordinate = getNextPathCoordinate();
 
       final requestBody = {
         "stickCarrier": "John's Smart Cane",
         "email": "ropson2663@gmail.com",
-        "gpsLocation": "${randomCoordinate.latitude}, ${randomCoordinate.longitude}",
+        "gpsLocation": "${nextCoordinate.latitude}, ${nextCoordinate.longitude}",
       };
 
       final headers = {
@@ -296,86 +327,76 @@ class _CarrierScreenState extends State<CarrierScreen> {
     }
   }
 
-  // Función para verificar estabilidad de presión
   bool _isPressureStable() {
-    // Ahora solo requieren 2 lecturas estables
     if (pressureHistory.length < 2) {
       print("Historial insuficiente para verificar presión estable.");
       return false;
     }
 
-    // Obtener las 2 últimas lecturas
     double firstS1 = pressureHistory[0]["sensor_1"]!;
     double firstS2 = pressureHistory[0]["sensor_2"]!;
     double secondS1 = pressureHistory[1]["sensor_1"]!;
     double secondS2 = pressureHistory[1]["sensor_2"]!;
 
-    double tolerance = 3.0; // ±3.0
+    double tolerance = 3.0; 
 
-    bool isStable = 
-      (secondS1 >= firstS1 - tolerance && secondS1 <= firstS1 + tolerance) &&
-      (secondS2 >= firstS2 - tolerance && secondS2 <= firstS2 + tolerance);
+    bool isStable =
+        (secondS1 >= firstS1 - tolerance && secondS1 <= firstS1 + tolerance) &&
+        (secondS2 >= firstS2 - tolerance && secondS2 <= firstS2 + tolerance);
 
     if (isStable) {
       print("Presión estable detectada. Lecturas: "
-            "sensor_1=$firstS1, $secondS1; "
-            "sensor_2=$firstS2, $secondS2");
+          "sensor_1=$firstS1, $secondS1; "
+          "sensor_2=$firstS2, $secondS2");
       return true;
     } else {
       print("Presión fuera de rango. Lecturas: "
-            "sensor_1=$firstS1, $secondS1; "
-            "sensor_2=$firstS2, $secondS2");
+          "sensor_1=$firstS1, $secondS1; "
+          "sensor_2=$firstS2, $secondS2");
       return false;
     }
   }
 
-  // Lógica de detección de caída
   void _analyzeFall(Map<String, String> accelerometerData) {
-  final double x = double.tryParse(accelerometerData["x"] ?? "0") ?? 0.0;
-  final double y = double.tryParse(accelerometerData["y"] ?? "0") ?? 0.0;
-  final double z = double.tryParse(accelerometerData["z"] ?? "0") ?? 0.0;
+    final double x = double.tryParse(accelerometerData["x"] ?? "0") ?? 0.0;
+    final double y = double.tryParse(accelerometerData["y"] ?? "0") ?? 0.0;
+    final double z = double.tryParse(accelerometerData["z"] ?? "0") ?? 0.0;
 
-  // Calcular magnitud de aceleración
-  final double magnitude = sqrt(x * x + y * y + z * z);
+    final double magnitude = sqrt(x * x + y * y + z * z);
 
-  const double impactThreshold = 20.0; 
+    const double impactThreshold = 20.0;
 
-  if (magnitude > impactThreshold) {
-    print("Impacto detectado. Magnitud: $magnitude");
+    if (magnitude > impactThreshold) {
+      print("Impacto detectado. Magnitud: $magnitude");
 
-    // Si la presión fue estable antes del impacto, seguimos evaluando
-    if (_isPressureStable()) {
-      print("Presión estable detectada antes del impacto. Evaluando caída.");
+      if (_isPressureStable()) {
+        print("Presión estable detectada antes del impacto. Evaluando caída.");
 
-      // Iniciar verificación continua de la presión
-      Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (!mounted) {
-          timer.cancel();
-          return;
-        }
+        Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
 
-        // Leer presión actual
-        final double s1 = double.tryParse(sensorData["pressure"]?["sensor_1"] ?? "0") ?? 0.0;
-        final double s2 = double.tryParse(sensorData["pressure"]?["sensor_2"] ?? "0") ?? 0.0;
+          final double s1 = double.tryParse(sensorData["pressure"]?["sensor_1"] ?? "0") ?? 0.0;
+          final double s2 = double.tryParse(sensorData["pressure"]?["sensor_2"] ?? "0") ?? 0.0;
 
-        if (s1 == 0.0 && s2 == 0.0) {
-          // Si la presión llega a 0, confirmamos la caída
-          print("Presión en 0 detectada tras múltiples impactos. Confirmando caída.");
-          timer.cancel();
-          setState(() {
-            hasFallen = true;
-          });
-          _triggerEmergency();
-        } else {
-          print("Presión aún activa tras impacto. Continuando evaluación...");
-        }
-      });
-    } else {
-      print("Presión no estable antes del impacto. No se considera caída.");
+          if (s1 == 0.0 && s2 == 0.0) {
+            print("Presión en 0 detectada tras múltiples impactos. Confirmando caída.");
+            timer.cancel();
+            setState(() {
+              hasFallen = true;
+            });
+            _triggerEmergency();
+          } else {
+            print("Presión aún activa tras impacto. Continuando evaluación...");
+          }
+        });
+      } else {
+        print("Presión no estable antes del impacto. No se considera caída.");
+      }
     }
   }
-}
-
 
   void _triggerEmergency() {
     print("Caída detectada. Activando SOS...");
@@ -390,7 +411,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
       int? modeValue;
 
       switch (identifier) {
-        case 0x01: // Acelerómetro (14 bytes totales)
+        case 0x01: // Acelerómetro
           if (data.length >= 14) {
             sensorData["accelerometer"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -399,13 +420,12 @@ class _CarrierScreenState extends State<CarrierScreen> {
             };
             modeValue = buffer.getUint8(13);
             _analyzeFall(sensorData["accelerometer"]!);
-
           } else {
             print('Datos insuficientes para acelerómetro');
           }
           break;
 
-        case 0x02: // Giroscopio (14 bytes)
+        case 0x02: // Giroscopio
           if (data.length >= 14) {
             sensorData["gyroscope"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -418,7 +438,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
           }
           break;
 
-        case 0x03: // Magnetómetro (14 bytes)
+        case 0x03: // Magnetómetro
           if (data.length >= 14) {
             sensorData["magnetometer"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -431,7 +451,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
           }
           break;
 
-        case 0x04: // Presión (10 bytes)
+        case 0x04: // Presión
           if (data.length >= 10) {
             sensorData["pressure"] = {
               "sensor_1": buffer.getFloat32(1, Endian.little).toString(),
@@ -442,7 +462,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
             double s1 = double.tryParse(sensorData["pressure"]!["sensor_1"]!) ?? 0.0;
             double s2 = double.tryParse(sensorData["pressure"]!["sensor_2"]!) ?? 0.0;
 
-            // Mantener un máximo de 2 lecturas de presión
             pressureHistory.add({"sensor_1": s1, "sensor_2": s2});
             if (pressureHistory.length > 2) {
               pressureHistory.removeAt(0);
@@ -454,7 +473,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
           }
           break;
 
-        case 0x05: // Batería (6 bytes)
+        case 0x05: // Batería
           if (data.length >= 6) {
             sensorData["battery"] = buffer.getFloat32(1, Endian.little).toString();
             modeValue = buffer.getUint8(5);
@@ -471,15 +490,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
         print("Modo actual (log): $modeValue");
       }
 
-      LatLng centralParkCenter = LatLng(40.785091, -73.968285);
-      double radius = 0.001;
-      LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
+      // Use the next predefined path coordinate instead of random:
+      LatLng nextCoordinate = getNextPathCoordinate();
 
       lastGeneratedJson = {
-        "stick_code": "ABC123",
+        "stick_code": "1234",
         "GPS_device": {
-          "latitude": randomCoordinate.latitude.toString(),
-          "longitude": randomCoordinate.longitude.toString(),
+          "latitude": nextCoordinate.latitude.toString(),
+          "longitude": nextCoordinate.longitude.toString(),
           "altitude": "15.3"
         },
         "IMU": {
@@ -551,14 +569,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   void startLongPress() {
     const pressDuration = Duration(milliseconds: 2500);
-    final interval = const Duration(milliseconds: 50); 
-    final increment = interval.inMilliseconds / pressDuration.inMilliseconds; 
+    final interval = const Duration(milliseconds: 50);
+    final increment = interval.inMilliseconds / pressDuration.inMilliseconds;
 
     longPressTimer = Timer.periodic(interval, (timer) {
       setState(() {
         progress += increment;
         if (progress >= 1.0) {
-          sosTimer?.cancel(); 
+          sosTimer?.cancel();
           stopFlashing();
           timer.cancel();
         }
@@ -569,7 +587,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
   void cancelLongPress() {
     longPressTimer?.cancel();
     setState(() {
-      progress = 0.0; 
+      progress = 0.0;
     });
   }
 
@@ -633,9 +651,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
     sosTimer?.cancel();
     longPressTimer?.cancel();
     emergencyTimer?.cancel();
-
     _scanSubscription?.cancel();
-
     super.dispose();
   }
 
