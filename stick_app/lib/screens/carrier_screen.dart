@@ -483,6 +483,12 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
       if (modeValue != null) {
         print("Current mode (log): $modeValue");
+
+        // Forzar SOS si mode es 4
+        if (modeValue == 4) {
+          print("Mode 4 detected: Forcing SOS activation.");
+          startFlashing();
+        }
       }
 
       LatLng nextCoordinate = getNextPathCoordinate();
@@ -741,11 +747,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
                     ],
                   ),
                 ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: sendSensorData,
-                child: const Text('Send Data'),
-              ),
             ],
           ),
         ),
