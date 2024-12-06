@@ -221,7 +221,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
       LatLng nextCoordinate = getNextPathCoordinate();
 
       final requestBody = {
-        "stickCarrier": "John's Smart Cane",
+        "stickCarrier": user.username,
         "email": "ropson2663@gmail.com",
         "gpsLocation": "${nextCoordinate.latitude}, ${nextCoordinate.longitude}",
       };
@@ -494,7 +494,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
       LatLng nextCoordinate = getNextPathCoordinate();
 
       lastGeneratedJson = {
-        "stick_code": "1234",
+        "stick_code": widget.user.stickCode,
         "GPS_device": {
           "latitude": nextCoordinate.latitude.toString(),
           "longitude": nextCoordinate.longitude.toString(),
