@@ -44,10 +44,8 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   DiscoveredDevice? connectedDevice; // Dispositivo actualmente conectado
 
-  // Número de teléfono al que se llamará
-  final String emergencyNumber = "+34648985584"; // Cambia esto al número deseado
+  final String emergencyNumber = "+34648985584"; // Número al que se llamará
 
-  // Variables Bluetooth
   final FlutterReactiveBle _ble = FlutterReactiveBle();
   final List<DiscoveredDevice> _devicesList = [];
   bool _isScanning = false;
@@ -55,12 +53,15 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   StreamSubscription? _scanSubscription;
 
-  bool isSosActive = false; // Indica si el SOS está activo
+  bool isSosActive = false; 
+
+  bool hasFallen = false;
+  List<Map<String, double>> pressureHistory = []; // Historial de presión reducido
 
   void _scanForDevices(Function setStateModal) async {
     await _requestPermissions();
 
-    if (!mounted) return; // Verifica si el widget sigue montado
+    if (!mounted) return;
 
     setState(() {
       _devicesList.clear();
@@ -68,10 +69,9 @@ class _CarrierScreenState extends State<CarrierScreen> {
       _statusMessage = "Buscando dispositivos BLE...";
     });
 
-    // Inicia el escaneo
     final scanStream = _ble.scanForDevices(withServices: []);
     _scanSubscription = scanStream.listen((device) {
-      if (!mounted) return; // Verifica si el widget sigue montado
+      if (!mounted) return;
 
       setState(() {
         if (!_devicesList.any((d) => d.id == device.id)) {
@@ -83,7 +83,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
         // Actualiza la subventana con la lista de dispositivos
       });
     }, onError: (error) {
-      if (!mounted) return; // Verifica si el widget sigue montado
+      if (!mounted) return;
 
       setState(() {
         _statusMessage = "Error durante el escaneo: $error";
@@ -91,11 +91,10 @@ class _CarrierScreenState extends State<CarrierScreen> {
       });
     });
 
-    // Detiene el escaneo después de 5 segundos
     await Future.delayed(const Duration(seconds: 5));
     await _scanSubscription?.cancel();
 
-    if (!mounted) return; // Verifica si el widget sigue montado
+    if (!mounted) return;
 
     setState(() {
       _isScanning = false;
@@ -119,7 +118,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
     });
   }
 
-  // Detener el escaneo manualmente
   void _stopScanning() {
     setState(() {
       _isScanning = false;
@@ -140,7 +138,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
     }
   }
 
-  // Generador de coordenadas aleatorias
   LatLng generateRandomCoordinate(LatLng center, double radius) {
     final random = Random();
     final offsetLat = (random.nextDouble() - 0.5) * radius * 2;
@@ -152,24 +149,22 @@ class _CarrierScreenState extends State<CarrierScreen> {
     return LatLng(newLat, newLng);
   }
 
-  // Cerrar sesión
   Future<void> _logout() async {
     await SessionManager.clearUserSession();
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (context) => const StartScreen()), 
-      (route) => false, // Elimina todas las rutas anteriores
+      (route) => false, 
     );
   }
 
   void startFlashing() {
-    // Solo activar si no está activo ya
     if (!isSosActive) {
       setState(() {
         isFlashing = true;
         showOkButton = true;
         sosButtonColor = Colors.red;
-        isSosActive = true; // Marca el SOS como activo
+        isSosActive = true; 
       });
 
       flashTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
@@ -178,13 +173,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
         });
       });
 
-      // Inicia el temporizador de emergencia para enviar datos después de 10 segundos
       emergencyTimer = Timer(const Duration(seconds: 10), sendEmergencyMessage);
       print("SOS activado");
     }
   }
 
-  // Enviar un mensaje de emergencia
   void sendEmergencyMessage() async {
     const String apiUrl = "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/emergency";
 
@@ -252,8 +245,8 @@ class _CarrierScreenState extends State<CarrierScreen> {
               SnackBar(content: Text('Conexión establecida con: ${device.name.isNotEmpty ? device.name : device.id}')),
             );
 
-            Navigator.pop(context); // Cierra la subventana
-            _discoverAndReadCharacteristics(device.id); // Leer datos del dispositivo
+            Navigator.pop(context);
+            _discoverAndReadCharacteristics(device.id);
           }
         },
         onError: (error) {
@@ -303,12 +296,98 @@ class _CarrierScreenState extends State<CarrierScreen> {
     }
   }
 
+  // Función para verificar estabilidad de presión
+  bool _isPressureStable() {
+    // Ahora solo requieren 2 lecturas estables
+    if (pressureHistory.length < 2) {
+      print("Historial insuficiente para verificar presión estable.");
+      return false;
+    }
+
+    // Obtener las 2 últimas lecturas
+    double firstS1 = pressureHistory[0]["sensor_1"]!;
+    double firstS2 = pressureHistory[0]["sensor_2"]!;
+    double secondS1 = pressureHistory[1]["sensor_1"]!;
+    double secondS2 = pressureHistory[1]["sensor_2"]!;
+
+    double tolerance = 3.0; // ±3.0
+
+    bool isStable = 
+      (secondS1 >= firstS1 - tolerance && secondS1 <= firstS1 + tolerance) &&
+      (secondS2 >= firstS2 - tolerance && secondS2 <= firstS2 + tolerance);
+
+    if (isStable) {
+      print("Presión estable detectada. Lecturas: "
+            "sensor_1=$firstS1, $secondS1; "
+            "sensor_2=$firstS2, $secondS2");
+      return true;
+    } else {
+      print("Presión fuera de rango. Lecturas: "
+            "sensor_1=$firstS1, $secondS1; "
+            "sensor_2=$firstS2, $secondS2");
+      return false;
+    }
+  }
+
+  // Lógica de detección de caída
+  void _analyzeFall(Map<String, String> accelerometerData) {
+  final double x = double.tryParse(accelerometerData["x"] ?? "0") ?? 0.0;
+  final double y = double.tryParse(accelerometerData["y"] ?? "0") ?? 0.0;
+  final double z = double.tryParse(accelerometerData["z"] ?? "0") ?? 0.0;
+
+  // Calcular magnitud de aceleración
+  final double magnitude = sqrt(x * x + y * y + z * z);
+
+  const double impactThreshold = 20.0; 
+
+  if (magnitude > impactThreshold) {
+    print("Impacto detectado. Magnitud: $magnitude");
+
+    // Si la presión fue estable antes del impacto, seguimos evaluando
+    if (_isPressureStable()) {
+      print("Presión estable detectada antes del impacto. Evaluando caída.");
+
+      // Iniciar verificación continua de la presión
+      Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+
+        // Leer presión actual
+        final double s1 = double.tryParse(sensorData["pressure"]?["sensor_1"] ?? "0") ?? 0.0;
+        final double s2 = double.tryParse(sensorData["pressure"]?["sensor_2"] ?? "0") ?? 0.0;
+
+        if (s1 == 0.0 && s2 == 0.0) {
+          // Si la presión llega a 0, confirmamos la caída
+          print("Presión en 0 detectada tras múltiples impactos. Confirmando caída.");
+          timer.cancel();
+          setState(() {
+            hasFallen = true;
+          });
+          _triggerEmergency();
+        } else {
+          print("Presión aún activa tras impacto. Continuando evaluación...");
+        }
+      });
+    } else {
+      print("Presión no estable antes del impacto. No se considera caída.");
+    }
+  }
+}
+
+
+  void _triggerEmergency() {
+    print("Caída detectada. Activando SOS...");
+    startFlashing(); 
+  }
+
   void _decodeAndLogSensorData(Uint8List data) {
     final buffer = ByteData.sublistView(data);
     final int identifier = buffer.getUint8(0);
 
     setState(() {
-      int? modeValue; // Variable para almacenar el modo
+      int? modeValue;
 
       switch (identifier) {
         case 0x01: // Acelerómetro (14 bytes totales)
@@ -319,12 +398,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
               "z": buffer.getFloat32(9, Endian.little).toString()
             };
             modeValue = buffer.getUint8(13);
+            _analyzeFall(sensorData["accelerometer"]!);
+
           } else {
             print('Datos insuficientes para acelerómetro');
           }
           break;
 
-        case 0x02: // Giroscopio (14 bytes totales)
+        case 0x02: // Giroscopio (14 bytes)
           if (data.length >= 14) {
             sensorData["gyroscope"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -337,7 +418,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
           }
           break;
 
-        case 0x03: // Magnetómetro (14 bytes totales)
+        case 0x03: // Magnetómetro (14 bytes)
           if (data.length >= 14) {
             sensorData["magnetometer"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -350,19 +431,30 @@ class _CarrierScreenState extends State<CarrierScreen> {
           }
           break;
 
-        case 0x04: // Presión (10 bytes totales)
+        case 0x04: // Presión (10 bytes)
           if (data.length >= 10) {
             sensorData["pressure"] = {
               "sensor_1": buffer.getFloat32(1, Endian.little).toString(),
               "sensor_2": buffer.getFloat32(5, Endian.little).toString()
             };
             modeValue = buffer.getUint8(9);
+
+            double s1 = double.tryParse(sensorData["pressure"]!["sensor_1"]!) ?? 0.0;
+            double s2 = double.tryParse(sensorData["pressure"]!["sensor_2"]!) ?? 0.0;
+
+            // Mantener un máximo de 2 lecturas de presión
+            pressureHistory.add({"sensor_1": s1, "sensor_2": s2});
+            if (pressureHistory.length > 2) {
+              pressureHistory.removeAt(0);
+            }
+
+            print("Historial de presión actualizado: $pressureHistory");
           } else {
             print('Datos insuficientes para presión');
           }
           break;
 
-        case 0x05: // Batería (6 bytes totales)
+        case 0x05: // Batería (6 bytes)
           if (data.length >= 6) {
             sensorData["battery"] = buffer.getFloat32(1, Endian.little).toString();
             modeValue = buffer.getUint8(5);
@@ -376,20 +468,13 @@ class _CarrierScreenState extends State<CarrierScreen> {
       }
 
       if (modeValue != null) {
-        print("Modo actual (solo log): $modeValue");
-        // Si el modo es 4 y el SOS no está activo, inicia el SOS
-        if (modeValue == 4 && !isSosActive) {
-          print("Modo 4 detectado, iniciando SOS...");
-          startFlashing(); // Activa la funcionalidad SOS (dentro se marca isSosActive y se muestra OK)
-        }
+        print("Modo actual (log): $modeValue");
       }
 
-      // Generar coordenadas GPS simuladas
       LatLng centralParkCenter = LatLng(40.785091, -73.968285);
       double radius = 0.001;
       LatLng randomCoordinate = generateRandomCoordinate(centralParkCenter, radius);
 
-      // Crear el JSON completo (sin incluir el modo)
       lastGeneratedJson = {
         "stick_code": "ABC123",
         "GPS_device": {
@@ -412,7 +497,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
     });
   }
 
-  // Función para enviar datos con coordenadas aleatorias
   void sendSensorData() async {
     if (lastGeneratedJson == null) {
       print("No hay datos disponibles para enviar.");
@@ -455,26 +539,26 @@ class _CarrierScreenState extends State<CarrierScreen> {
   void stopFlashing() {
     flashTimer?.cancel();
     sosTimer?.cancel();
-    emergencyTimer?.cancel(); // Cancela el temporizador de emergencia
+    emergencyTimer?.cancel(); 
     setState(() {
       sosButtonColor = Colors.red;
       showOkButton = false;
       isFlashing = false;
       progress = 0.0;
-      isSosActive = false; // Marca el SOS como inactivo
+      isSosActive = false;
     });
   }
 
   void startLongPress() {
-    const pressDuration = Duration(milliseconds: 2500); // 2.5 segundos
-    final interval = const Duration(milliseconds: 50); // Intervalo de actualización
-    final increment = interval.inMilliseconds / pressDuration.inMilliseconds; // Incremento de progreso
+    const pressDuration = Duration(milliseconds: 2500);
+    final interval = const Duration(milliseconds: 50); 
+    final increment = interval.inMilliseconds / pressDuration.inMilliseconds; 
 
     longPressTimer = Timer.periodic(interval, (timer) {
       setState(() {
         progress += increment;
         if (progress >= 1.0) {
-          sosTimer?.cancel(); // Cancela la llamada SOS
+          sosTimer?.cancel(); 
           stopFlashing();
           timer.cancel();
         }
@@ -485,7 +569,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
   void cancelLongPress() {
     longPressTimer?.cancel();
     setState(() {
-      progress = 0.0; // Restablece el progreso si se cancela la pulsación larga
+      progress = 0.0; 
     });
   }
 
@@ -503,10 +587,10 @@ class _CarrierScreenState extends State<CarrierScreen> {
                 children: [
                   ElevatedButton(
                     onPressed: _isScanning
-                        ? null // Desactiva el botón mientras escanea
+                        ? null
                         : () {
                             setStateModal(() {
-                              _scanForDevices(setStateModal); // Llama al escaneo y actualiza la subventana
+                              _scanForDevices(setStateModal);
                             });
                           },
                     child: const Text('Buscar Dispositivos Bluetooth'),
@@ -539,19 +623,17 @@ class _CarrierScreenState extends State<CarrierScreen> {
         );
       },
     ).whenComplete(() {
-      _stopScanning(); // Detener el escaneo al cerrar la subventana
+      _stopScanning();
     });
   }
 
   @override
   void dispose() {
-    // Cancela los temporizadores
     flashTimer?.cancel();
     sosTimer?.cancel();
     longPressTimer?.cancel();
     emergencyTimer?.cancel();
 
-    // Cancela el Stream de escaneo de Bluetooth si está activo
     _scanSubscription?.cancel();
 
     super.dispose();
@@ -561,7 +643,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false, // Elimina la flecha de regreso
+        automaticallyImplyLeading: false, 
         title: const Text('Carrier'),
         actions: [
           PopupMenuButton<String>(
@@ -569,7 +651,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
               if (value == 'Cerrar sesión') {
                 _logout();
               } else if (value == 'Bluetooth') {
-                _openBluetoothModal(); // Abrir la subventana
+                _openBluetoothModal();
               }
             },
             itemBuilder: (BuildContext context) {
@@ -581,12 +663,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
         ],
       ),
       body: Container(
-        color: Colors.lightBlue[50], // Fondo azul claro
+        color: Colors.lightBlue[50],
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Estado de conexión Bluetooth
               Text(
                 connectionStatus,
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -596,8 +677,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
               ElevatedButton(
                 onPressed: () {
                   if (!isFlashing) {
-                    // Ahora simplemente llamamos a startFlashing()
-                    // sin modificar isFlashing ni showOkButton aquí.
                     startFlashing();
                   }
                 },
