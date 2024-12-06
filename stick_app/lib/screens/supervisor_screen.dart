@@ -21,29 +21,28 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
       "https://7mn42nacfa.execute-api.eu-central-1.amazonaws.com/test/sensor-data";
   String lastUpdate = 'No data received';
 
-  // Lista de puntos para la ruta
   List<LatLng> _routePoints = [];
-
-  // Marcadores para el mapa
   List<Marker> _markers = [];
 
   Future<void> getSensorData() async {
     try {
       final user = await SessionManager.getUserSession();
       if (user == null) {
-        print("Error: Usuario no autenticado.");
+        print("Error: Unauthenticated user.");
         return;
       }
 
       final jwtToken = user.jwtToken;
       final stickCode = user.stickCode;
-      final date = "2024-12-05"; 
+
+      final now = DateTime.now();
+      final date = "${now.year.toString().padLeft(4,'0')}-${now.month.toString().padLeft(2,'0')}-${now.day.toString().padLeft(2,'0')}";
 
       final gpsData = await fetchGPSData(stickCode!, date, jwtToken);
 
       if (gpsData.isNotEmpty) {
         setState(() {
-          lastUpdate = "Última actualización: ${DateTime.now()}";
+          lastUpdate = "Last update: ${DateTime.now()}";
 
           _markers.clear();
           _routePoints.clear();
@@ -57,19 +56,10 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
             }
           }
 
-          List<LatLng> filteredPoints = [];
-          for (int i = 0; i < allPoints.length; i += 60) {
-            filteredPoints.add(allPoints[i]);
-          }
-
-          if (filteredPoints.isEmpty && allPoints.isNotEmpty) {
-            filteredPoints = allPoints;
-          }
-
-          _routePoints = filteredPoints;
+          _routePoints = allPoints;
 
           if (_routePoints.isNotEmpty) {
-            // Marcador inicial (verde)
+            // Start marker (green)
             _markers.add(
               Marker(
                 point: _routePoints.first,
@@ -83,7 +73,7 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
               ),
             );
 
-            // Marcador final (rojo), si hay más de un punto
+            // End marker (red) if there is more than one point
             if (_routePoints.length > 1) {
               _markers.add(
                 Marker(
@@ -101,10 +91,10 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
           }
         });
       } else {
-        print("No se recibieron datos GPS.");
+        print("Error: No GPS data received.");
       }
     } catch (e) {
-      print("Excepción al obtener datos del sensor: $e");
+      print("Exception occurred while fetching sensor data: $e");
     }
   }
 
@@ -115,7 +105,7 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
 
     try {
       final requestBody = {
-        "stick_code": "ABC123",
+        "stick_code": "1234",
         "date": date,
       };
 
@@ -139,24 +129,23 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
           final bodyData = jsonDecode(responseData['body']);
 
           if (bodyData.containsKey('gps_data') && bodyData['gps_data'] != null) {
-            final gpsData =
-                List<Map<String, dynamic>>.from(bodyData['gps_data']);
+            final gpsData = List<Map<String, dynamic>>.from(bodyData['gps_data']);
             return gpsData;
           } else {
-            print("Error: No se encontraron datos GPS en el campo 'body'.");
+            print("Error: No GPS data found in 'body'.");
             return [];
           }
         } else {
-          print("Error: No se encontró el campo 'body' en la respuesta.");
+          print("Error: 'body' field not found in the response.");
           return [];
         }
       } else {
-        print("Error al obtener datos: ${response.statusCode}");
-        print("Cuerpo de la respuesta: ${response.body}");
+        print("Error obtaining data: ${response.statusCode}");
+        print("Response body: ${response.body}");
         return [];
       }
     } catch (e) {
-      print("Excepción al obtener datos del sensor: $e");
+      print("Exception occurred while fetching sensor data: $e");
       return [];
     }
   }
@@ -169,18 +158,18 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'Cerrar sesión') {
+              if (value == 'Sign out') {
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (context) => const StartScreen()),
                   (route) => false,
                 );
               } else if (value == 'Logs') {
-                // show logs if needed
+                // Show logs if needed
               }
             },
             itemBuilder: (BuildContext context) {
-              return {'Logs', 'Cerrar sesión'}.map((String choice) {
+              return {'Logs', 'Sign out'}.map((String choice) {
                 return PopupMenuItem<String>(
                     value: choice, child: Text(choice));
               }).toList();
@@ -233,7 +222,7 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                     minimumSize: const Size(150, 50),
                   ),
                   child: const Text(
-                    'Actualizar Datos',
+                    'Update Data',
                     style: TextStyle(fontSize: 18),
                   ),
                 ),

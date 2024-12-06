@@ -4,11 +4,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:stick_app/screens/start_screen.dart';
-import 'package:stick_app/services/session_manager.dart'; // Importa el CognitoManager
-import 'package:stick_app/services/cognito_manager.dart'; // Importar User
-import 'package:latlong2/latlong.dart'; // Importar LatLng de latlong2
-import 'package:flutter_reactive_ble/flutter_reactive_ble.dart'; // Asegúrate de tener esta librería instalada
-import 'package:permission_handler/permission_handler.dart'; // Para manejar permisos
+import 'package:stick_app/services/session_manager.dart'; 
+import 'package:stick_app/services/cognito_manager.dart'; 
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_reactive_ble/flutter_reactive_ble.dart'; 
+import 'package:permission_handler/permission_handler.dart'; 
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle; 
 
@@ -41,10 +41,10 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   Map<String, dynamic>? lastGeneratedJson;
 
-  String connectionStatus = "Desconectado"; // Estado inicial
-  DiscoveredDevice? connectedDevice; // Dispositivo actualmente conectado
+  String connectionStatus = "Disconnected";
+  DiscoveredDevice? connectedDevice; 
 
-  final String emergencyNumber = "+34648985584"; // Número al que se llamará
+  final String emergencyNumber = "+34648985584";
 
   final FlutterReactiveBle _ble = FlutterReactiveBle();
   final List<DiscoveredDevice> _devicesList = [];
@@ -55,25 +55,29 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   bool isSosActive = false;
   bool hasFallen = false;
-  List<Map<String, double>> pressureHistory = []; // Historial de presión reducido
+  List<Map<String, double>> pressureHistory = [];
 
-  // Predefined path of coordinates. Replace these with your actual path coordinates.
   List<LatLng> _predefinedPath = [];
   int _currentPathIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCoordinates();
+  }
 
   Future<void> _loadCoordinates() async {
     try {
       final String jsonString = await rootBundle.loadString('assets/coordinates.json');
       final List<dynamic> jsonData = jsonDecode(jsonString);
 
-      // Parse the JSON into a list of LatLng objects
       _predefinedPath = jsonData.map((item) {
         final lat = item['latitude'] as double;
         final lng = item['longitude'] as double;
         return LatLng(lat, lng);
       }).toList();
 
-      setState(() {}); // Update the UI if needed
+      setState(() {});
     } catch (e) {
       print("Error loading coordinates: $e");
       _predefinedPath = [];
@@ -82,20 +86,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
 
   LatLng getNextPathCoordinate() {
     if (_predefinedPath.isEmpty) {
-      // Fallback if no path is defined
       return LatLng(40.785091, -73.968285);
     }
 
     final coord = _predefinedPath[_currentPathIndex];
 
-    // Move to the next coordinate for next time
     _currentPathIndex++;
     if (_currentPathIndex >= _predefinedPath.length) {
-      // If you want to loop back to the start, uncomment the next line
       _currentPathIndex = 0;
-
-      // If not looping, just remain on the last coordinate:
-      //_currentPathIndex = _predefinedPath.length - 1;
     }
 
     return coord;
@@ -118,7 +116,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
     setState(() {
       _devicesList.clear();
       _isScanning = true;
-      _statusMessage = "Buscando dispositivos BLE...";
+      _statusMessage = "Searching for BLE devices...";
     });
 
     final scanStream = _ble.scanForDevices(withServices: []);
@@ -131,14 +129,12 @@ class _CarrierScreenState extends State<CarrierScreen> {
         }
       });
 
-      setStateModal(() {
-        // Actualiza la subventana con la lista de dispositivos
-      });
+      setStateModal(() {});
     }, onError: (error) {
       if (!mounted) return;
 
       setState(() {
-        _statusMessage = "Error durante el escaneo: $error";
+        _statusMessage = "Error during scanning: $error";
         _isScanning = false;
       });
     });
@@ -151,9 +147,9 @@ class _CarrierScreenState extends State<CarrierScreen> {
     setState(() {
       _isScanning = false;
       if (_devicesList.isEmpty) {
-        _statusMessage = "No se encontraron dispositivos.";
+        _statusMessage = "No devices found.";
       } else {
-        _statusMessage = "Dispositivos encontrados:";
+        _statusMessage = "Devices found:";
       }
     });
   }
@@ -182,9 +178,9 @@ class _CarrierScreenState extends State<CarrierScreen> {
       setState(() {
         _isScanning = false;
         if (_devicesList.isEmpty) {
-          _statusMessage = "No se encontraron dispositivos.";
+          _statusMessage = "No devices found.";
         } else {
-          _statusMessage = "Dispositivos encontrados:";
+          _statusMessage = "Devices found:";
         }
       });
     }
@@ -206,7 +202,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
       });
 
       emergencyTimer = Timer(const Duration(seconds: 10), sendEmergencyMessage);
-      print("SOS activado");
+      print("SOS activated");
     }
   }
 
@@ -216,13 +212,12 @@ class _CarrierScreenState extends State<CarrierScreen> {
     try {
       final user = await SessionManager.getUserSession();
       if (user == null) {
-        print("Error: Usuario no autenticado.");
+        print("Error: Unauthenticated user.");
         return;
       }
 
       final jwtToken = user.jwtToken;
 
-      // Use the next coordinate in the predefined path instead of random:
       LatLng nextCoordinate = getNextPathCoordinate();
 
       final requestBody = {
@@ -256,7 +251,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
   void _connectToDevice(DiscoveredDevice device) async {
     try {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Conectando al dispositivo: ${device.name.isNotEmpty ? device.name : device.id}')),
+        SnackBar(content: Text('Connecting to device: ${device.name.isNotEmpty ? device.name : device.id}')),
       );
 
       final connection = _ble.connectToDevice(
@@ -269,11 +264,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
           if (connectionState.connectionState == DeviceConnectionState.connected) {
             setState(() {
               connectedDevice = device;
-              connectionStatus = "Conectado a ${device.name.isNotEmpty ? device.name : device.id}";
+              connectionStatus = "Connected to ${device.name.isNotEmpty ? device.name : device.id}";
             });
 
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Conexión establecida con: ${device.name.isNotEmpty ? device.name : device.id}')),
+              SnackBar(content: Text('Connection established with: ${device.name.isNotEmpty ? device.name : device.id}')),
             );
 
             Navigator.pop(context);
@@ -282,7 +277,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
         },
         onError: (error) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al conectar: $error')),
+            SnackBar(content: Text('Error connecting: $error')),
           );
         },
       );
@@ -310,11 +305,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
                 if (data.isNotEmpty) {
                   _decodeAndLogSensorData(Uint8List.fromList(data));
                 } else {
-                  print('Datos insuficientes recibidos: $data');
+                  print('Insufficient data received: $data');
                 }
               },
               onError: (error) {
-                print('Error al suscribirse: $error');
+                print('Error subscribing: $error');
               },
             );
           }
@@ -322,14 +317,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al descubrir servicios/características: $e')),
+        SnackBar(content: Text('Error discovering services/characteristics: $e')),
       );
     }
   }
 
   bool _isPressureStable() {
     if (pressureHistory.length < 2) {
-      print("Historial insuficiente para verificar presión estable.");
+      print("Insufficient history to verify stable pressure.");
       return false;
     }
 
@@ -345,12 +340,12 @@ class _CarrierScreenState extends State<CarrierScreen> {
         (secondS2 >= firstS2 - tolerance && secondS2 <= firstS2 + tolerance);
 
     if (isStable) {
-      print("Presión estable detectada. Lecturas: "
+      print("Stable pressure detected. Readings: "
           "sensor_1=$firstS1, $secondS1; "
           "sensor_2=$firstS2, $secondS2");
       return true;
     } else {
-      print("Presión fuera de rango. Lecturas: "
+      print("Pressure out of range. Readings: "
           "sensor_1=$firstS1, $secondS1; "
           "sensor_2=$firstS2, $secondS2");
       return false;
@@ -367,10 +362,10 @@ class _CarrierScreenState extends State<CarrierScreen> {
     const double impactThreshold = 20.0;
 
     if (magnitude > impactThreshold) {
-      print("Impacto detectado. Magnitud: $magnitude");
+      print("Impact detected. Magnitude: $magnitude");
 
       if (_isPressureStable()) {
-        print("Presión estable detectada antes del impacto. Evaluando caída.");
+        print("Stable pressure detected before the impact. Evaluating fall...");
 
         Timer.periodic(const Duration(seconds: 1), (timer) {
           if (!mounted) {
@@ -382,24 +377,24 @@ class _CarrierScreenState extends State<CarrierScreen> {
           final double s2 = double.tryParse(sensorData["pressure"]?["sensor_2"] ?? "0") ?? 0.0;
 
           if (s1 == 0.0 && s2 == 0.0) {
-            print("Presión en 0 detectada tras múltiples impactos. Confirmando caída.");
+            print("Zero pressure detected after multiple checks. Confirming fall.");
             timer.cancel();
             setState(() {
               hasFallen = true;
             });
             _triggerEmergency();
           } else {
-            print("Presión aún activa tras impacto. Continuando evaluación...");
+            print("Pressure still active after impact. Continuing evaluation...");
           }
         });
       } else {
-        print("Presión no estable antes del impacto. No se considera caída.");
+        print("Pressure not stable before impact. Not considered a fall.");
       }
     }
   }
 
   void _triggerEmergency() {
-    print("Caída detectada. Activando SOS...");
+    print("Fall detected. Activating SOS...");
     startFlashing(); 
   }
 
@@ -411,7 +406,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
       int? modeValue;
 
       switch (identifier) {
-        case 0x01: // Acelerómetro
+        case 0x01: 
           if (data.length >= 14) {
             sensorData["accelerometer"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -421,11 +416,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
             modeValue = buffer.getUint8(13);
             _analyzeFall(sensorData["accelerometer"]!);
           } else {
-            print('Datos insuficientes para acelerómetro');
+            print('Insufficient data for accelerometer');
           }
           break;
 
-        case 0x02: // Giroscopio
+        case 0x02: 
           if (data.length >= 14) {
             sensorData["gyroscope"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -434,11 +429,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
             };
             modeValue = buffer.getUint8(13);
           } else {
-            print('Datos insuficientes para giroscopio');
+            print('Insufficient data for gyroscope');
           }
           break;
 
-        case 0x03: // Magnetómetro
+        case 0x03: 
           if (data.length >= 14) {
             sensorData["magnetometer"] = {
               "x": buffer.getFloat32(1, Endian.little).toString(),
@@ -447,11 +442,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
             };
             modeValue = buffer.getUint8(13);
           } else {
-            print('Datos insuficientes para magnetómetro');
+            print('Insufficient data for magnetometer');
           }
           break;
 
-        case 0x04: // Presión
+        case 0x04: 
           if (data.length >= 10) {
             sensorData["pressure"] = {
               "sensor_1": buffer.getFloat32(1, Endian.little).toString(),
@@ -467,30 +462,29 @@ class _CarrierScreenState extends State<CarrierScreen> {
               pressureHistory.removeAt(0);
             }
 
-            print("Historial de presión actualizado: $pressureHistory");
+            print("Updated pressure history: $pressureHistory");
           } else {
-            print('Datos insuficientes para presión');
+            print('Insufficient data for pressure');
           }
           break;
 
-        case 0x05: // Batería
+        case 0x05: 
           if (data.length >= 6) {
             sensorData["battery"] = buffer.getFloat32(1, Endian.little).toString();
             modeValue = buffer.getUint8(5);
           } else {
-            print('Datos insuficientes para batería');
+            print('Insufficient data for battery');
           }
           break;
 
         default:
-          print('Identificador desconocido: $identifier. Datos sin procesar: $data');
+          print('Unknown identifier: $identifier. Raw data: $data');
       }
 
       if (modeValue != null) {
-        print("Modo actual (log): $modeValue");
+        print("Current mode (log): $modeValue");
       }
 
-      // Use the next predefined path coordinate instead of random:
       LatLng nextCoordinate = getNextPathCoordinate();
 
       lastGeneratedJson = {
@@ -510,14 +504,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
         "user": "ropson2663"
       };
 
-      print("json generado: ${jsonEncode(lastGeneratedJson)}");
+      print("Generated JSON: ${jsonEncode(lastGeneratedJson)}");
       sendSensorData();
     });
   }
 
   void sendSensorData() async {
     if (lastGeneratedJson == null) {
-      print("No hay datos disponibles para enviar.");
+      print("No data available to send.");
       return;
     }
 
@@ -526,7 +520,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
     try {
       final user = await SessionManager.getUserSession();
       if (user == null) {
-        print("Error: Usuario no autenticado.");
+        print("Error: Unauthenticated user.");
         return;
       }
 
@@ -557,7 +551,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
   void stopFlashing() {
     flashTimer?.cancel();
     sosTimer?.cancel();
-    emergencyTimer?.cancel(); 
+    emergencyTimer?.cancel();
     setState(() {
       sosButtonColor = Colors.red;
       showOkButton = false;
@@ -611,7 +605,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
                               _scanForDevices(setStateModal);
                             });
                           },
-                    child: const Text('Buscar Dispositivos Bluetooth'),
+                    child: const Text('Search Bluetooth Devices'),
                   ),
                   const SizedBox(height: 10),
                   if (_isScanning) const CircularProgressIndicator(),
@@ -622,11 +616,11 @@ class _CarrierScreenState extends State<CarrierScreen> {
                       itemBuilder: (context, index) {
                         final device = _devicesList[index];
                         return ListTile(
-                          title: Text(device.name.isNotEmpty ? device.name : 'Dispositivo Desconocido'),
+                          title: Text(device.name.isNotEmpty ? device.name : 'Unknown Device'),
                           subtitle: Text('ID: ${device.id}\nRSSI: ${device.rssi}'),
                           onTap: () {
                             setStateModal(() {
-                              _statusMessage = "Seleccionaste el dispositivo: ${device.name.isNotEmpty ? device.name : device.id}";
+                              _statusMessage = "Selected device: ${device.name.isNotEmpty ? device.name : device.id}";
                             });
                             _connectToDevice(device);
                           },
@@ -664,14 +658,14 @@ class _CarrierScreenState extends State<CarrierScreen> {
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'Cerrar sesión') {
+              if (value == 'Sign out') {
                 _logout();
               } else if (value == 'Bluetooth') {
                 _openBluetoothModal();
               }
             },
             itemBuilder: (BuildContext context) {
-              return {'Cerrar sesión', 'Bluetooth'}.map((String choice) {
+              return {'Sign out', 'Bluetooth'}.map((String choice) {
                 return PopupMenuItem<String>(value: choice, child: Text(choice));
               }).toList();
             },
@@ -750,7 +744,7 @@ class _CarrierScreenState extends State<CarrierScreen> {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: sendSensorData,
-                child: const Text('Enviar Datos'),
+                child: const Text('Send Data'),
               ),
             ],
           ),
