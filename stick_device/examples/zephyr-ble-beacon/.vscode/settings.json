@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "stddef.h": "c",
+        "rand32.h": "c"
+    },
+    "cmake.ignoreCMakeListsMissing": true
+}
