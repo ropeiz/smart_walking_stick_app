@@ -59,7 +59,6 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
           _routePoints = allPoints;
 
           if (_routePoints.isNotEmpty) {
-            // Start marker (green)
             _markers.add(
               Marker(
                 point: _routePoints.first,
@@ -73,7 +72,6 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
               ),
             );
 
-            // End marker (red) if there is more than one point
             if (_routePoints.length > 1) {
               _markers.add(
                 Marker(

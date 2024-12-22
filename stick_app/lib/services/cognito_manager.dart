@@ -19,7 +19,7 @@ class User {
   Map<String, dynamic> claims;
   String userType;
   String? stickCode;
-  String jwtToken; // Nuevo campo para almacenar el JWT token
+  String jwtToken; 
 
   User(this.username, this.userConfirmed, this.sessionValid, this.userSub,
       this.claims, this.userType, this.stickCode, this.jwtToken);
@@ -162,17 +162,15 @@ Future<User> signUp(
       session.idToken.jwtToken!,
     );
   } on CognitoServiceException catch (e) {
-    // Manejar excepciones personalizadas
-    print('Error al refrescar la sesión: $e'); // 'e' imprimirá el mensaje gracias a `toString()`
+
+    print('Error al refrescar la sesión: $e'); 
     return null;
   } catch (e) {
-    // Manejar cualquier otra excepción
+
     print('Error inesperado al refrescar la sesión: $e');
     return null;
   }
 }
-
-
 
   // Método para cerrar sesión
   Future<void> signOut() async {
@@ -185,7 +183,6 @@ Future<User> signUp(
 
     print('Usuario obtenido: ${cognitoUser.username}'); // Log para ver el usuario
 
-    // Intentamos obtener la sesión del usuario actual
     final session = await cognitoUser.getSession();
     print('Sesión obtenida: $session'); // Log para ver la sesión
 

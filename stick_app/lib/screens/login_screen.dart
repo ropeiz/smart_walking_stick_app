@@ -41,7 +41,6 @@ class _LoginFormState extends State<LoginForm> {
     // Iniciar sesión y obtener la respuesta del usuario
     final user = await _cognitoManager.signIn(email, password);
 
-    // Guardar sesión del usuario
     final userType = user.userType; // Aquí obtienes el tipo directamente del objeto User
 
     await SessionManager.saveUserSession(user);

@@ -37,7 +37,7 @@ static Future<User?> getUserSession() async {
       userData['claims'] ?? {},
       userData['userType'],
       userData['stickCode'],
-      userData['jwtToken'], // JWT si lo incluiste
+      userData['jwtToken'],
     );
   }
   return null; // Si no hay datos de usuario almacenados
@@ -45,7 +45,7 @@ static Future<User?> getUserSession() async {
 
   static Future<void> clearUserSession() async {
   final prefs = await SharedPreferences.getInstance();
-  await prefs.clear(); // Limpia todos los datos almacenados
+  await prefs.clear();
 }
 
   static Future<bool> isLoggedIn() async {

@@ -44,8 +44,6 @@ class _CarrierScreenState extends State<CarrierScreen> {
   String connectionStatus = "Disconnected";
   DiscoveredDevice? connectedDevice; 
 
-  final String emergencyNumber = "+34648985584";
-
   final FlutterReactiveBle _ble = FlutterReactiveBle();
   final List<DiscoveredDevice> _devicesList = [];
   bool _isScanning = false;
